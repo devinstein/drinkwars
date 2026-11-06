@@ -28,7 +28,7 @@ export interface GeoOutcome {
   // here (`produced`), units sold here (`q_sold`), their balance (`net`), the units routed here to
   // sell (`supplied`: the offer, or the presence share — DW-082d), and any inbound shipment lanes
   // (the shortfall, from the nearest base). `consumed` == q_sold.
-  marketBreakdown: Map<FirmId, Record<string, { revenue: number; q_sold: number; entered: boolean; bySeg: Record<SegmentId, { q_sold: number; share: number; price: number }>; produced: number; net: number; supplied: number; lanes: { origin_market: string; units: number; cost: number }[] }>>;
+  marketBreakdown: Map<FirmId, Record<string, { revenue: number; q_sold: number; entered: boolean; bySeg: Record<SegmentId, { q_sold: number; share: number; price: number; q_desired: number; cap_alloc?: number }>; produced: number; net: number; supplied: number; lanes: { origin_market: string; units: number; cost: number }[] }>>;
   events: string[];
 }
 
@@ -278,19 +278,20 @@ export function resolveGeography(
       let mRevenueLocal = 0;
       let mQ = 0;
       const agg = out.perFirm.get(f.id)!;
-      const bySeg: Record<SegmentId, { q_sold: number; share: number; price: number }> = {};
+      const bySeg: Record<SegmentId, { q_sold: number; share: number; price: number; q_desired: number; cap_alloc?: number }> = {};
       for (const [segId, r] of Object.entries(segs)) {
         mRevenueLocal += r.revenue;
         mQ += r.q_sold;
         // Within-market per-segment standing (for the City View "who leads each segment here" panel).
         const segTot = res.segmentTotals.get(segId) ?? 0;
-        bySeg[segId] = { q_sold: r.q_sold, share: segTot > 1e-9 ? r.q_sold / segTot : 0, price: r.price };
+        bySeg[segId] = { q_sold: r.q_sold, share: segTot > 1e-9 ? r.q_sold / segTot : 0, price: r.price, q_desired: r.q_desired, cap_alloc: r.cap_alloc }; // q_desired / cap_alloc: DW-084 market sizing
         // Aggregate this market's per-segment result into the firm's combined view.
         const prev = agg[segId];
         if (!prev) agg[segId] = { ...r, revenue: r.revenue * fx };
         else {
           prev.q_sold += r.q_sold;
           prev.q_desired += r.q_desired;
+          prev.cap_alloc = (prev.cap_alloc ?? 0) + (r.cap_alloc ?? 0);
           prev.revenue += r.revenue * fx;
         }
       }

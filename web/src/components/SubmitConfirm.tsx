@@ -9,7 +9,7 @@
  */
 import { useEffect, useRef } from "react";
 
-export function SubmitConfirm({ lines, onAnswer }: { lines: string[]; onAnswer: (ok: boolean) => void }) {
+export function SubmitConfirm({ lines, note, onAnswer }: { lines: string[]; note?: string; onAnswer: (ok: boolean) => void }) {
   const go = useRef<HTMLButtonElement>(null);
   const answer = useRef(onAnswer);
   answer.current = onAnswer; // Play re-renders on every poll — focus once, never steal it back
@@ -28,7 +28,7 @@ export function SubmitConfirm({ lines, onAnswer }: { lines: string[]; onAnswer: 
             <li key={i} className="flex gap-2 text-[0.9rem] leading-snug text-ink"><span aria-hidden="true" className="mt-[0.45em] h-1.5 w-1.5 flex-none rounded-full bg-copper" /><span className="min-w-0">{l}</span></li>
           ))}
         </ul>
-        <p className="mt-3 text-[0.78rem] leading-snug text-inksoft">Not sure? Go back and talk it over — the commit panel keeps these under “What locks at round end.”</p>
+        <p className="mt-3 text-[0.78rem] leading-snug text-inksoft">{note ?? "Not sure? Go back and talk it over — the commit panel keeps these under “What locks at round end.”"}</p>
         <div className="mt-4 flex flex-wrap justify-end gap-2">
           <button type="button" onClick={() => onAnswer(false)} className="rounded-lg border border-line2 bg-panel px-4 py-2 text-sm text-inksoft hover:text-ink">Go back</button>
           <button ref={go} type="button" data-dw="submit-confirm-go" onClick={() => onAnswer(true)} className="tt-btn tt-btn--go px-4 py-2 text-sm">Submit anyway</button>

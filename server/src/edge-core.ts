@@ -17,7 +17,7 @@ export {
   // Per-team projections + helpers the Edge transport needs at parity with the
   // local dev transport (src/transport.ts) — city view, research-gated rival
   // snapshots, shocks, history, the hiring pool, and the Tuning-Board merge.
-  deepMerge, generateHiringMarket, projectMarkets, projectFirms, projectShocks, projectHistory,
+  deepMerge, generateHiringMarket, projectMarkets, projectMarketSizing, projectFirms, projectShocks, projectHistory,
 } from "drinkwars-engine";
 // DW-039 per-request read cache — the edge transport wraps its store with this
 // (supabase/functions/drinkwars/index.ts); without the re-export Deno fails to

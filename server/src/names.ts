@@ -38,7 +38,10 @@ export function renameFirms(text: string, names: Record<string, string>): string
  *  refused or trimmed, a hire it couldn't pay for. It reveals a valuation at or below zero and
  *  cash below a known line, which rivals otherwise only learn by buying research. Only the firm
  *  it names sees it; the instructor dashboard reads the full event list and keeps it all. */
-const OWN_ONLY = /^(EQUITY|EQUITY MARKET CLOSED|HIRE FAILED):/;
+// DW-083: the bank's answer (CREDIT, CREDIT REFUSED), a repayment the cash couldn't cover, the
+// affordability guard's cuts (BLOCKED), an emergency overdraft and a purchase it couldn't fund are the
+// same kind of news — each reveals a balance sheet rivals otherwise pay research to see.
+const OWN_ONLY = /^(EQUITY|EQUITY MARKET CLOSED|HIRE FAILED|CREDIT|CREDIT REFUSED|REPAYMENT CUT|BLOCKED|OVERDRAFT|OVERDRAFT EXHAUSTED|PURCHASE FAILED):/;
 /** DW-080: what a firm LOST with a person — the loyalty / tenure tail on a POACHED or DEPARTURE line
  *  ("— took 4 quarters of built-up loyalty (+16% contribution)") — is that firm's private read on
  *  its own people (DW-075). Rivals, the poacher included, see the move; only the firm it left sees

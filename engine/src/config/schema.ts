@@ -99,6 +99,23 @@ export function validateConfig(c: Config): Config {
     c.finance?.coverage_penalty_mode == null || ["step", "graduated"].includes(c.finance.coverage_penalty_mode),
     'finance.coverage_penalty_mode must be "step" or "graduated"',
   );
+  // DW-083 flags: same silent-typo guard — a misspelt mode would quietly fall back to "scale".
+  req(
+    c.finance?.affordability_guard == null || ["block", "scale"].includes(c.finance.affordability_guard.mode),
+    'finance.affordability_guard.mode must be "block" or "scale"',
+  );
+  if (c.finance?.overdraft != null) rate(c.finance.overdraft.max_fraction_of_assets, "finance.overdraft.max_fraction_of_assets");
+  req(c.finance?.affordability_guard?.reserve_running_costs == null || typeof c.finance.affordability_guard.reserve_running_costs === "boolean", "finance.affordability_guard.reserve_running_costs must be true or false");
+  if (c.finance?.cash_flow_lending != null) {
+    const cf = c.finance.cash_flow_lending;
+    req(isNum(cf.ebitda_multiple) && cf.ebitda_multiple > 0, `finance.cash_flow_lending.ebitda_multiple must be > 0 (got ${String(cf.ebitda_multiple)})`);
+    req(cf.trailing_rounds == null || (Number.isInteger(cf.trailing_rounds) && cf.trailing_rounds >= 1), "finance.cash_flow_lending.trailing_rounds must be an integer ≥ 1");
+    req(cf.min_history_rounds == null || (Number.isInteger(cf.min_history_rounds) && cf.min_history_rounds >= 0), "finance.cash_flow_lending.min_history_rounds must be an integer ≥ 0");
+  }
+  req(c.finance?.repay_cash_cap == null || typeof c.finance.repay_cash_cap === "boolean", "finance.repay_cash_cap must be true or false");
+  req(c.demand?.phantom_competitors == null || typeof c.demand.phantom_competitors === "boolean", "demand.phantom_competitors must be true or false");
+  // DW-084: a knee of 0 or below would divide by zero in ln(x/k) — absent is how a game says "linear".
+  req(c.demand?.stock_knee == null || (isNum(c.demand.stock_knee) && c.demand.stock_knee > 0), `demand.stock_knee must be > 0 (got ${String(c.demand?.stock_knee)})`);
 
   // Benchmark bands are display-only, but an inverted one silently mis-tiers a student's
   // gauge (a firm below `weak` reading "strong"), so the ordering is checked here rather

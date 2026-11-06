@@ -15,9 +15,11 @@ import { loadConfig } from "../src/config/load.js";
 import { modulesOverride } from "../src/config/modules.js";
 import type { Config, Employee, FirmDecision, FirmId, WorldState } from "../src/types.js";
 import { dw075Provider, dw075Summary } from "./fixtures/dw075_scenario.js";
+import { preDw083 } from "./fixtures/legacy.js";
 
 const BASELINE = JSON.parse(readFileSync(new URL("./fixtures/dw075_baseline.json", import.meta.url), "utf8"));
-const peopleCfg = () => loadConfig(modulesOverride(["employees", "laborMarket"]));
+// The baseline fixture predates v3 (DW-084), so the scenario runs the pre-v3 demand and finance rules.
+const peopleCfg = () => preDw083(loadConfig(modulesOverride(["employees", "laborMarket"])));
 const emp = (over: Partial<Employee> = {}): Employee => ({
   id: "emp_0_0", name: "Hana B.", role: "head_brewer", skill: 4, salary: 99_000, satisfaction: 0.8, tenure_rounds: 4, hired_round: 0, avatar_seed: "x", ...over,
 });

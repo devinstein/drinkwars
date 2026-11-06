@@ -4,6 +4,8 @@
  * can see whether the plan clears the bank before anyone locks it (the "COO and CMO
  * spend, nobody told the CFO" catch). Pure functions over the view — no state.
  */
+import { equityCapacity, financingGrant } from "drinkwars-engine";
+import { runningCostsAsGuard } from "./moneyCheck.js";
 import type { FirmDecision } from "drinkwars-engine";
 import type { GameView } from "../game/controller.js";
 import { SEG_LABEL, fmt, humanizeId } from "../labels.js";
@@ -74,7 +76,7 @@ export function deskLines(desk: CockpitDesk, d: FirmDecision, view: GameView): s
 /** Rough cash reconciliation of the composed plan: committed outflows vs financing
  *  inflows vs cash on hand. An ESTIMATE — payroll/opex/COGS aren't included — but it
  *  catches the classic miss: desks committing spend the CFO never financed. */
-export function planCash(d: FirmDecision, view: GameView): { out: number; inflow: number; after: number } {
+export function planCash(d: FirmDecision, view: GameView): { out: number; inflow: number; reserve: number; after: number } {
   const facTypes = view.modules?.facilities?.types ?? [];
   const buildCapex = (d.build_facilities ?? []).reduce((a, b) => {
     const t = facTypes.find((x) => x.id === b.type);
@@ -88,8 +90,17 @@ export function planCash(d: FirmDecision, view: GameView): { out: number; inflow
     + (d.poach_employees ?? []).reduce((a, p) => a + (p.offer ?? 0), 0);
   const strat = (d.lobby_spend ?? 0) + (d.acquisition_bid?.price ?? 0)
     + Object.values(d.public_good_contributions ?? {}).reduce((a, v) => a + (v ?? 0), 0);
-  const out = buildCapex + invest + maint + people + strat + (d.debt_repay ?? 0) + (d.dividend ?? 0);
-  const inflow = (d.debt_draw ?? 0) + (d.equity_raise ?? 0) + (d.draw_convertible ?? 0) + (d.draw_rbf ?? 0);
+  // DW-083 item 1 on the team surface: the financing the bank and investors will actually grant (the Decide
+  // form's own function), not the raw ask — this card once counted a $5M draw the bank would cap at $1.8M.
+  const grant = view.finance && view.own ? financingGrant(view.own, { finance: view.finance }, { debt_draw: d.debt_draw ?? 0, debt_repay: d.debt_repay ?? 0, equity_raise: d.equity_raise ?? 0 }, equityCapacity(view.own, { finance: view.finance })) : null;
+  const out = buildCapex + invest + maint + people + strat + (grant ? grant.repay : (d.debt_repay ?? 0)) + (d.dividend ?? 0);
+  const inflow = (grant ? grant.draw + grant.equityNet : (d.debt_draw ?? 0) + (d.equity_raise ?? 0)) + (d.draw_convertible ?? 0) + (d.draw_rbf ?? 0);
   const cash = view.own?.cash ?? 0;
-  return { out, inflow, after: cash + inflow - out };
+  // v3 (11-06 playtest): with the reserve on, the round sets the quarter's running costs aside before it pays for
+  // any order. The commit rail and the engine both count it; this card said "short $740,000" beside a rail that
+  // cut the tanks to $398,960. Same estimate as the rail.
+  const reserve = view.finance?.affordability_guard?.reserve_running_costs && view.capacity && view.own && grant
+    ? runningCostsAsGuard(view, d, grant).total
+    : 0;
+  return { out, inflow, reserve, after: cash + inflow - out - reserve };
 }

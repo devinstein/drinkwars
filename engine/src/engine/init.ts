@@ -67,6 +67,7 @@ export function initFirm(id: string, c: Config, locationFactor: number, profile:
     location_factor: locationFactor * profile.unit_cost, // <1 for incumbents ⇒ cheaper to produce
     primary_segment: null,
     ni_history: [],
+    ebitda_history: [],
     score_accum: { financial: 0, market: 0, intangible: 0, stakeholder: 0, rounds: 0 },
     rounds_below_health: 0,
     reentry_count: 0,

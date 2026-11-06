@@ -1,10 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
-import type { Facility, FirmDecision, PrPlayType, SegmentId } from "drinkwars-engine";
-import { DESK_LEVERS, ROLE_DESK, equityCapacity, equityIssueCost } from "drinkwars-engine";
+import type { Config, Facility, FirmDecision, PrPlayType, SegmentId } from "drinkwars-engine";
+import { DESK_LEVERS, ROLE_DESK, applyAffordabilityGuard, creditReason, equityCapacity, equityIssueCost, financingGrant, overdraftLimit, runningCostEstimate } from "drinkwars-engine";
 import type { GameView } from "../game/controller.js";
 import { keepUntouchedMarkets, mergeDecision, type CityActions } from "../game/cityActions.js";
 import { SEG_LABEL, SEG_TAG, STOCK_LABEL, fmt, toDisplayMoney, toEngineMoney, marketName } from "../labels.js";
 import { holdLever, leverText, planDiffs, researchBuyer, teamOutcome, unholdLever, type PlanDiff } from "../lib/reconcile.js";
+import { listOf, readSellOuts, tankFit } from "../lib/sizing.js";
+import { holdOrder, tankOutlook } from "../lib/tanks.js";
+import { guardConfig, runningCostsAsGuard } from "../lib/moneyCheck.js";
 import { Button, Card, Eyebrow, Row, Tag } from "./ui.js";
 import { AllocationBar } from "./AllocationBar.js";
 import { CategoryCoin } from "./CategoryIcons.js";
@@ -419,15 +422,62 @@ export function DecisionForm({
     const moduleSpend = prSpend + waterSpend + pgSpend + geoEntrySpend + rndSpend + vertSpend + hireSpend + lobSpendEff + renegCallCost + facSpend + empSpend;
     const investSpend = p.invest_cap + p.invest_Q + p.invest_B + p.invest_process + p.invest_T_emp + p.invest_T_inv + p.invest_T_gov;
     const infoSpend = p.buy_info || infoLocked ? infoCost : 0; // DW-081: a landed team purchase is spent, whatever this form says
-    const financeOut = p.debt_repay + p.dividend;
-    const financeIn = p.debt_draw + Math.min(p.equity_raise, equityCap) * (1 - issueFee);
+    // DW-083 item 1: the financing the round will actually raise, priced by the engine's own function —
+    // the bank's leverage cap on the draw as well as the investors' cap on equity. The draw used to be
+    // counted in full: three Sprint 2 firms saw positive cash on a loan the bank refused and closed at
+    // −$0.8M to −$2.1M.
+    const grant = view.finance ? financingGrant(view.own, { finance: view.finance }, p, equityCap) : null;
+    const financeOut = (grant ? grant.repay : p.debt_repay) + p.dividend;
+    const financeIn = grant ? grant.draw + grant.equityNet : p.debt_draw + Math.min(p.equity_raise, equityCap) * (1 - issueFee);
     const netFinancing = financeIn - financeOut;
     const projectedCash = cash - investSpend - infoSpend - brewSpend - moduleSpend + netFinancing + instrDraws; // before this round's sales
-    return { brewSpend, instrDraws, buildCost, maintCost, facSpend, empSpend, moduleSpend, investSpend, infoSpend, netFinancing, projectedCash };
+    return { brewSpend, instrDraws, buildCost, maintCost, facSpend, empSpend, moduleSpend, investSpend, infoSpend, netFinancing, projectedCash, grant };
   };
-  const { brewSpend, instrDraws, buildCost, maintCost, facSpend, empSpend, moduleSpend, investSpend, infoSpend, netFinancing, projectedCash } = costsOf(proj);
+  const { brewSpend, instrDraws, buildCost, maintCost, facSpend, empSpend, moduleSpend, investSpend, infoSpend, netFinancing, projectedCash, grant: planGrant } = costsOf(proj);
   const myCash = proj === effective ? projectedCash : costsOf(effective).projectedCash; // this form alone
-  const overcommit = projectedCash < 0;
+  // DW-083 item 2: with the affordability guard on, the engine cuts what the plan can't pay for — run
+  // the same function on the same state, so the rail can name the cuts before anyone submits.
+  const guard = view.finance?.affordability_guard
+    ? applyAffordabilityGuard(view.own, proj, guardConfig(view, infoCost), view.round, equityCap, view.hiringMarket)
+    : null;
+  // DW-084: the dial shows what the round will actually do — the plan after the guard's cuts (the same
+  // pricing function on the trimmed plan), not a plan the engine won't run.
+  const lockedCash = guard && guard.cuts.length > 0 ? costsOf(guard.decision).projectedCash : projectedCash;
+  const overcommit = lockedCash < 0;
+  // DW-083: what the quarter costs before a drink sells (overhead, tank upkeep, regulatory, rent,
+  // payroll, interest). The projection above is pre-sales; these come out of the sales.
+  const running = view.finance && view.capacity && planGrant ? runningCostsAsGuard(view, proj, planGrant) : null; // the guard's own reserve
+  // Break-even uses the categories that can actually sell — one priced past 4× unit cost sells ~nothing and
+  // would inflate the average price (a $43 Craft price made 5,065 drinks look like enough).
+  const priceWeights = activeSegs.map((s) => ((proj.price?.[s] ?? 0) > view.unitCostEst * 4 ? 0 : Math.max(0, proj.presence?.[s] ?? 0)));
+  const pw = priceWeights.reduce((a, b) => a + b, 0);
+  const avgPrice = pw > 0 ? activeSegs.reduce((a, s, i) => a + (proj.price?.[s] ?? 0) * priceWeights[i], 0) / pw : 0;
+  // Inventory mode pays the brewing bill up front (brewSpend, in the projection), so each sale brings in the
+  // whole price; otherwise unit cost is charged per drink sold and only the margin covers running costs.
+  const marginPerDrink = invOn ? avgPrice : avgPrice - view.unitCostEst;
+  const breakEvenDrinks = running && marginPerDrink > 0 ? running.total / marginPerDrink : null;
+  // DW-084: one honest scenario — last quarter's sales again, net of what selling them cost (brewing, unless
+  // inventory mode already paid it up front; distribution, tariffs and shipping). It doesn't move with this
+  // quarter's prices on purpose: a price hike shouldn't make the estimate rosier before a shopper reacts.
+  const lastPnl = view.ownResult?.pnl;
+  const lastDrinks = view.ownResult ? Object.values(view.ownResult.segments).reduce((a, x) => a + x.q_sold, 0) : 0;
+  const lastContribution = lastPnl && lastDrinks > 0 ? lastPnl.revenue - (invOn ? 0 : lastPnl.cogs) - (lastPnl.opex_lines?.distribution ?? 0) : null;
+  const endIfRepeat = running && lastContribution != null ? lockedCash - running.total + lastContribution : null;
+  // DW-084 "cash to work with": what the bank and investors will put in this quarter, on this plan.
+  const bankLine = planGrant ? planGrant.creditCapacity : null;
+  // v3: the bank's cash-flow test reads `min_history_rounds` quarters of books before it applies (two: from round 3).
+  const cfl = view.finance?.cash_flow_lending;
+  const cfStart = cfl ? roundNo + Math.max(0, (cfl.min_history_rounds ?? 1) - (view.own.ebitda_history?.length ?? 0)) : null;
+  const odCfg = view.finance?.overdraft;
+  const odLimit = view.finance ? overdraftLimit(view.own, { finance: view.finance }) : 0;
+  const belowZeroCopy = odCfg
+    ? `below $0 the bank's emergency overdraft covers up to ${fmt.money(odLimit)} at the penalty rate; beyond that the firm closes`
+    : "a firm that ends a quarter below $0 closes";
+  // DW-083 item 8: bound the price box (the form once accepted $1e23) and say when a price empties a category.
+  const priceMax = Math.max(25, Math.round(view.unitCostEst * 10));
+  // A category priced out of reach but still allotted tanks: those tanks sit idle (Sprint 2: a team
+  // "left" Craft with a $1,000,000 price and kept half its capacity there for three rounds).
+  const pricedOut = new Set(activeSegs.filter((s) => (d.presence[s] ?? 0) > 0 && d.price[s] > view.unitCostEst * 4));
 
   const equity = view.own.paid_in_capital + view.own.retained_earnings;
   // DW-082: with book equity at or below zero the ratio means nothing (it read ~10¹²×); the engine clamps at 10×
@@ -492,9 +542,12 @@ export function DecisionForm({
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-inksoft">$</span>
-                    <input type="number" step="0.25" min="0" value={d.price[s]} onChange={(e) => setPrice(s, Math.max(0, +e.target.value))} className="w-24 text-right" style={leverStyle("price")} />
+                    <input type="number" step="0.25" min="0" max={priceMax} value={d.price[s]} onChange={(e) => setPrice(s, Math.max(0, Math.min(priceMax, +e.target.value || 0)))} className="w-24 text-right" style={leverStyle("price")} />
                   </div>
                   <div className={`tnum text-sm ${margin > 0 ? "text-hop" : "text-brick"}`}>{margin >= 0 ? "+$" : "−$"}{Math.abs(margin).toFixed(2)} / drink</div>
+                  {pricedOut.has(s) && (
+                    <div className="w-full text-[0.68rem] leading-snug text-brick">Almost no one buys {SEG_LABEL[s] ?? s} at {fmt.price(d.price[s])}, so the tanks you allocate to it sit idle. To leave {SEG_LABEL[s] ?? s}, drag its share of capacity to 0 under Tanks &amp; Allocation.</div>
+                  )}
                 </div>
               );
             })}
@@ -520,23 +573,56 @@ export function DecisionForm({
                 const cc = view.capacity;
                 if (!cc || !(cc.gain > 0)) return <div className="mt-1 text-[0.7rem] text-inksoft tnum">Current capacity: {fmt.int(view.own.cap)} units</div>;
                 const perUnit = 1 / cc.gain;
-                const added = d.invest_cap * cc.gain;
-                const wear = view.own.cap * cc.depreciation;
-                const holdLevel = wear * perUnit;
-                const next = view.own.cap - wear + (cc.lag <= 1 ? added : 0);
-                const net = next - view.own.cap;
-                const when = cc.lag <= 0 ? "this round" : cc.lag === 1 ? "next round" : `in ${cc.lag} rounds`;
+                // The engine's own timeline (lib/tanks.ts): this quarter wears the stock and lands what was ordered
+                // `lag` quarters ago; this round's order comes online after that. The card used to add this order to
+                // a single wear and ignore the pipeline — a $2.3M order placed last quarter never showed, while a
+                // carried $3M order showed as landing again.
+                // 11-06 (Devin): what the order will actually buy, before submit. When the guard cuts THIS form's tank
+                // order, the card runs on what cash and credit cover; a teammate's order being cut gets its own line.
+                const tankCut = guard?.cuts.find((x) => x.kind === "tanks") ?? null;
+                const mineCut = !!tankCut && Math.abs(tankCut.asked - d.invest_cap) < 0.5;
+                const t = tankOutlook(view.own, cc, mineCut ? tankCut!.kept : d.invest_cap);
+                const tAsked = mineCut ? tankOutlook(view.own, cc, d.invest_cap) : null;
+                const holdLevel = holdOrder(t, cc); // the order lands next quarter, so it offsets next quarter's wear-out
+                const net = t.capNext - t.capThis;
+                const when = cc.lag <= 0 ? "this quarter" : cc.lag === 1 ? "next quarter" : `in ${cc.lag} quarters`;
                 return (
                   <div className="mt-1.5 grid gap-0.5 text-[0.7rem] text-inksoft tnum">
                     <div>Tanks cost <b className="text-ink">{fmt.price(perUnit)}</b> per unit of quarterly capacity.</div>
-                    <div>This spend buys <b className="text-ink">+{fmt.int(added)}</b> units, online {when}.</div>
-                    <div>Wear-out this quarter: <b className="text-ink">−{fmt.int(wear)}</b> units ({Math.round(cc.depreciation * 100)}% of what you own). Holding level costs {fmt.money(holdLevel)}.</div>
+                    {mineCut && tAsked
+                      ? <div className="text-brick" data-testid="tank-cut">Cash and credit cover only <b>{fmt.money(tankCut!.kept)}</b> of this order{guard && guard.reserve >= 0.5 ? " once this quarter's running costs are set aside" : ""}. Unless the plan changes, the round cuts it to that: <b>+{fmt.int(t.added)}</b> units online {when}, not +{fmt.int(tAsked.added)}.</div>
+                      : <div>This spend buys <b className="text-ink">+{fmt.int(t.added)}</b> units, online {when}.</div>}
+                    {tankCut && !mineCut && <div className="text-brick" data-testid="tank-cut">The plan's tank order ({fmt.money(tankCut.asked)}) is more than cash and credit cover: unless it changes, the round cuts it to {fmt.money(tankCut.kept)}, +{fmt.int(tankOutlook(view.own, cc, tankCut.kept).added)} units online {when} instead of +{fmt.int(tankOutlook(view.own, cc, tankCut.asked).added)}.</div>}
+                    <div>Wear-out this quarter: <b className="text-ink">−{fmt.int(t.wear)}</b> units ({Math.round(cc.depreciation * 100)}% of what you own). {cc.lag >= 1 ? "To keep next quarter level with this one" : "To hold level"}, order <b className="text-ink">{fmt.money(holdLevel)}</b>.</div>
                     <div className="mt-0.5 border-t border-line pt-0.5">
-                      Capacity: {fmt.int(view.own.cap)} now →{" "}
-                      <b className={net < 0 ? "text-brick" : "text-ink"}>{fmt.int(next)}</b> next round
-                      <span className={net < 0 ? "text-brick" : "text-hop"}> ({net >= 0 ? "+" : "−"}{fmt.int(Math.abs(net))})</span>
+                      This quarter brews with <b className="text-ink">{fmt.int(t.capThis)}</b> units{t.landNow >= 0.5 && <> ({fmt.int(t.landNow)} you ordered earlier come online)</>}
+                      {cc.lag >= 1 && <> → <b className={net < 0 ? "text-brick" : "text-ink"}>{fmt.int(t.capNext)}</b> next quarter{cc.lag === 1 ? (mineCut ? " with what you can pay for" : " with this order") : ""}<span className={net < 0 ? "text-brick" : "text-hop"}> ({net >= 0 ? "+" : "−"}{fmt.int(Math.abs(net))})</span></>}
                     </div>
                     <div>Every unit you own costs {fmt.price(cc.fixed_cost_per_unit)}/qtr in upkeep, brewed or idle.</div>
+                    <div>This order repeats every quarter until you change it — revisit it as your tanks fill up or sit idle.</div>
+                    {/* DW-084: the one demand number that argues for tanks — shoppers who picked you, where you sell, and
+                        found you sold out (Review → Operations & Demand → Market size has the rest of the market). */}
+                    {view.sizing && view.ownResult && (() => {
+                      const effCap = view.ownResult.effective_cap ?? view.own.cap;
+                      const util = effCap > 0 ? view.sizing.sold / effCap : 0;
+                      const so = readSellOuts(view.sizing);
+                      // 11-06 playtest: the sell-out read looks back, but earlier orders land first. Against this quarter's
+                      // tanks, last quarter's demand can already be covered — or dwarfed: a tank binge brewed on 4× what it
+                      // sold while this line said only "everyone who picked you was served".
+                      const fit = tankFit(view.sizing, t.capThis);
+                      return (
+                        <div className="mt-0.5 border-t border-line pt-0.5">
+                          Last quarter you used <b className="text-ink">{fmt.pct(Math.min(1, util))}</b> of your tanks{so.turned < 0.5
+                            ? <>; everyone who picked you was served.</>
+                            : fit.covers && t.landNow >= 0.5
+                            ? <> and turned away <b className="text-brick">{fmt.int(so.turned)}</b> shoppers who picked you; the {fmt.int(t.landNow)} units landing this quarter already cover that.</>
+                            : so.shiftable >= 0.5 && so.short.length && so.spare.length
+                              ? <> and turned away <b className="text-brick">{fmt.int(so.turned)}</b> shoppers who picked you in {listOf(so.short)}, while {listOf(so.spare)} had room for {fmt.int(so.shiftable)} more. {so.shiftable >= 0.5 * so.turned ? <>Shift capacity before adding tanks.</> : <>Shifting capacity closes about {fmt.int(so.shiftable)} of it; the rest takes more tanks or a higher price.</>}</>
+                              : <> and turned away <b className="text-brick">{fmt.int(so.turned)}</b> shoppers who picked you.</>}
+                          {fit.ample && <> This quarter you brew with <b className="text-ink">{fmt.int(t.capThis)}</b> units; if last quarter's demand repeats ({fmt.int(fit.demand)} drinks), they run at <b className="text-brick">{fmt.pct(fit.util)}</b>{cc.lag >= 1 && t.capNext > t.capThis + 0.5 ? <>, and this order takes you to <b className="text-ink">{fmt.int(t.capNext)}</b> next quarter</> : null}. Unless demand grows (a new market, better quality or brand, a lower price), {d.invest_cap >= 0.5 ? "trim the order" : "hold off on new tanks"}: an idle unit still costs {fmt.price(cc.fixed_cost_per_unit)} a quarter.</>}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })()}
@@ -634,6 +720,18 @@ export function DecisionForm({
                 </div>
                 <LeverNote f={f.key} />
                 <div className="text-[0.66rem] leading-snug text-inksoft">{f.hint}</div>
+                {f.key === "debt_draw" && view.finance && (() => {
+                  // DW-083 item 1: the bank's answer before the round, not after it (mirror of the equity line below).
+                  const g = financingGrant(view.own, { finance: view.finance }, d, equityCap);
+                  const lim = g.creditCapacity;
+                  // v3 audit: the reason names whichever test binds — equity (3×) or operating cash flow (3× annual EBITDA).
+                  const why = creditReason(g.limits, g.equityAfter, { finance: view.finance }, "your");
+                  // 11-06 playtest: rounds 1–2 lend on equity alone; say when the cash-flow test arrives, before round 3 meets it.
+                  const cfLater = cfl && cfStart != null && cfStart > roundNo ? ` From round ${cfStart}, the bank also caps debt at ${cfl.ebitda_multiple}× annual operating cash flow (EBITDA).` : "";
+                  return lim < 1
+                    ? <div className="text-[0.66rem] leading-snug text-brick">The bank won't lend this quarter: {why}.</div>
+                    : <div className={`text-[0.66rem] leading-snug tnum ${d.debt_draw > lim + 0.5 ? "text-brick" : "text-inksoft"}`}>The bank will lend up to <b>{fmt.money(lim)}</b> this quarter ({why}){d.debt_draw > lim + 0.5 ? " — only that much will be lent." : "."}{cfLater}</div>;
+                })()}
                 {f.key === "equity_raise" && equityGated && (
                   equityCap < 1
                     ? <div className="text-[0.66rem] leading-snug text-brick">Equity market closed: your losses have pushed your valuation to zero or below, so no investor will buy in.</div>
@@ -1287,20 +1385,50 @@ export function DecisionForm({
             <span className="font-mono text-[0.55rem] uppercase tracking-wide" style={{ color: "#bda079" }}>Round {roundNo}</span>
           </div>
           <div className="px-4 pt-3 pb-3">
+            {/* DW-084: what the firm has to work with, before anything is planned — Sprint 2's teams never
+                saw the bank's limit, the investors' limit or the overdraft, and planned past all three. */}
+            <div data-testid="cash-and-credit" className="mb-3 grid gap-1 pb-2.5" style={{ borderBottom: "1px solid rgba(255,240,205,.13)" }}>
+              <div className="font-mono text-[0.58rem] uppercase tracking-[0.1em]" style={{ color: "#bda079" }}>Cash &amp; credit this quarter</div>
+              <CommitRow label="Cash on hand" value={fmt.money(cash)} />
+              {bankLine != null && <CommitRow label="The bank lends up to" value={fmt.money(bankLine)} tone={bankLine >= 0.5 ? undefined : "brick"} />}
+              {equityGated && <CommitRow label="Investors put in up to" value={fmt.money(equityCap)} tone={equityCap >= 0.5 ? undefined : "brick"} />}
+              {odCfg && <CommitRow label="Emergency overdraft" value={`up to ${fmt.money(odLimit)}`} />}
+              {view.finance && (
+                <div className="text-[0.68rem] leading-snug" style={{ color: "#a98a5f" }}>
+                  Debt can't pass {view.finance.max_leverage}× equity{cfl ? (cfStart != null && cfStart > roundNo ? ` (from round ${cfStart}, also ${cfl.ebitda_multiple}× annual operating cash flow)` : ` or ${cfl.ebitda_multiple}× annual operating cash flow`) : ""}{equityGated ? `; investors put in at most ${(view.finance.equity_gate?.max_fraction_of_valuation ?? 0.5) === 0.5 ? "half" : fmt.pct(view.finance.equity_gate?.max_fraction_of_valuation ?? 0.5)} of your valuation` : ""}{odCfg ? `; the overdraft is a last resort at the penalty rate, and a firm that needs more closes` : ""}.
+                </div>
+              )}
+            </div>
             <div className="font-mono text-[0.58rem] uppercase tracking-[0.1em]" style={{ color: "#bda079" }}>{team ? "On the team's plan · projected cash · pre-sales" : "Projected cash · pre-sales"}</div>
-            <div className="tnum text-[2.6rem] font-bold leading-none" style={{ color: overcommit ? "#e59178" : "#f4e6c8" }}>{fmt.money(projectedCash)}</div>
+            <div className="tnum text-[2.6rem] font-bold leading-none" style={{ color: overcommit ? "#e59178" : "#f4e6c8" }}>{fmt.money(lockedCash)}</div>
+            {lockedCash !== projectedCash && <div className="mt-1 text-[0.74rem]" style={{ color: "#bda079" }}>after the cuts below — as entered, the plan would leave <b className="tnum" style={{ color: "#e59178" }}>{fmt.money(projectedCash)}</b></div>}
             {team && diffs.rows.length > 0 && Math.abs(myCash - projectedCash) >= 0.5 && (
               <div className="mt-1 text-[0.8rem]" style={{ color: "#bda079" }}>Your form alone would give <b className="tnum" style={{ color: "#f2e4c4" }}>{fmt.money(myCash)}</b></div>
             )}
             <div className="mt-3 grid gap-1 pt-2.5" style={{ borderTop: "1px solid rgba(255,240,205,.13)" }}>
-              <CommitRow label="Cash on hand" value={fmt.money(cash)} />
               {invOn && brewSpend > 0 && <CommitRow label="Brewing" value={`−${fmt.money(brewSpend)}`} />}
               {investSpend + infoSpend > 0 && <CommitRow label="Investment & research" value={`−${fmt.money(investSpend + infoSpend)}`} />}
               {moduleSpend > 0 && <CommitRow label="Plays, programs & entry" value={`−${fmt.money(moduleSpend)}`} />}
               {instrDraws > 0 && <CommitRow label="Alt. financing" value={`+${fmt.money(instrDraws)}`} tone="hop" />}
               {netFinancing !== 0 && <CommitRow label="Net financing" value={fmt.signed(netFinancing)} tone={netFinancing < 0 ? "brick" : "hop"} />}
+              {/* 11-06 (Devin): the asked-for number never reads as the number that arrives */}
+              {planGrant && planGrant.requestedDraw - planGrant.draw >= 0.5 && <div data-testid="loan-cap" className="text-[0.72rem] leading-snug" style={{ color: "#eaa088" }}>{planGrant.draw < 0.5 ? `The bank won't lend this quarter: none of the ${fmt.money(planGrant.requestedDraw)} asked arrives.` : `The bank lends ${fmt.money(planGrant.draw)} of the ${fmt.money(planGrant.requestedDraw)} asked.`}</div>}
+              {planGrant && planGrant.equityAsked - planGrant.equityGross >= 0.5 && <div data-testid="equity-cap" className="text-[0.72rem] leading-snug" style={{ color: "#eaa088" }}>{planGrant.equityGross < 0.5 ? `No investor will buy in: none of the ${fmt.money(planGrant.equityAsked)} asked arrives.` : `Investors put in ${fmt.money(planGrant.equityGross)} of the ${fmt.money(planGrant.equityAsked)} asked.`}</div>}
               {lastCov != null && lastCov <= 900 && <CommitRow label="Interest coverage (last)" value={`${lastCov.toFixed(1)}×`} />}
             </div>
+            {running && running.total > 0 && (
+              <div data-testid="running-costs" className="mt-2.5 grid gap-1 pt-2" style={{ borderTop: "1px solid rgba(255,240,205,.13)" }}>
+                <CommitRow label="Running costs, paid from sales" value={`−${fmt.money(running.total)}`} />
+                <div className="text-[0.72rem] leading-snug" style={{ color: "#bda079" }}>
+                  Overhead, tank upkeep{running.payroll > 0 ? ", payroll" : ""}{running.facilities > 0 ? ", rent" : ""}{running.interest > 0 ? ", interest" : ""} — due whatever you sell.{" "}
+                  {breakEvenDrinks != null
+                    ? <>Covering them takes about <b className="tnum" style={{ color: "#f2e4c4" }}>{fmt.int(breakEvenDrinks)}</b> drinks at your prices.</>
+                    : <>{invOn ? "Set a price to see how many drinks cover them." : "Your prices are under unit cost, so every drink sold adds to the loss."}</>}
+                  {endIfRepeat != null && <> If sales repeat last quarter's ({fmt.int(lastDrinks)} drinks), you end near <b className="tnum" style={{ color: endIfRepeat < 0 ? "#e59178" : "#f2e4c4" }}>{fmt.money(endIfRepeat)}</b>.</>}
+                  {lockedCash - running.total < 0 && <> Sell nothing and you end at <b className="tnum" style={{ color: "#e59178" }}>{fmt.money(lockedCash - running.total)}</b>{overcommit || (guard && guard.cuts.length > 0) ? "." : <>: {belowZeroCopy}.</>}</>}
+                </div>
+              </div>
+            )}
           </div>
           {team && (diffs.rows.length > 0 ? (
             <div data-testid="plan-differs" className="grid gap-2.5 px-4 py-3" style={{ background: "rgba(216,106,82,.14)", borderTop: "3px solid #e59178", color: "#f2e4c4" }}>
@@ -1342,7 +1470,13 @@ export function DecisionForm({
             <div className="flex items-center gap-2 px-4 py-2.5 text-[0.84rem]" style={{ borderTop: "1px solid rgba(255,240,205,.13)", color: "#f2e4c4" }}><span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: unsent ? "#f0b94e" : "#9fce63" }} />{unsent ? "You've changed your desk since you submitted — the team's plan still has your last submit. Update to send it." : "Your form matches the team's plan."}</div>
           ))}
           <div className="px-4 pb-3 pt-2" style={{ borderTop: team ? "1px solid rgba(255,240,205,.13)" : undefined }}>
-            {overcommit && <div className="mb-3 rounded-lg px-3 py-2 text-[0.72rem]" style={{ background: "rgba(216,106,82,.16)", border: "1px solid rgba(216,106,82,.5)", color: "#eaa088" }}>Spending exceeds cash on hand — draw financing or trim a desk before brewing.</div>}
+            {guard && guard.cuts.length > 0 ? (
+              <div data-testid="guard-cuts" className="mb-3 rounded-lg px-3 py-2 text-[0.72rem] leading-snug" style={{ background: "rgba(216,106,82,.16)", border: "1px solid rgba(216,106,82,.5)", color: "#eaa088" }}>
+                {guard.reserve >= 0.5 ? `After ${fmt.money(guard.reserve)} set aside for running costs, cash` : "Cash"} plus the financing you'll get covers {fmt.money(guard.sources)} of {fmt.money(guard.committed + guard.orders + guard.payouts + guard.cuts.reduce((a, x) => a + x.asked - x.kept, 0))}{planGrant && planGrant.requestedDraw - planGrant.draw >= 0.5 ? ` (the bank lends ${fmt.money(planGrant.draw)} of the ${fmt.money(planGrant.requestedDraw)} asked)` : ""}. Unless you trim the plan, this gets cut: {guard.cuts.map((x) => (x.kept >= 0.5 ? `${x.label} to ${fmt.money(x.kept)}` : `${x.label} (${fmt.money(x.asked)})`)).join(", ")}.
+              </div>
+            ) : overcommit && (
+              <div className="mb-3 rounded-lg px-3 py-2 text-[0.72rem] leading-snug" style={{ background: "rgba(216,106,82,.16)", border: "1px solid rgba(216,106,82,.5)", color: "#eaa088" }}>Spending exceeds your cash plus the financing you'll actually get. Sales must cover the gap and the running costs — {belowZeroCopy}.</div>
+            )}
             {unsent && diffs.rows.length > 0 && <div className="mb-2 rounded-lg px-3 py-2 text-[0.72rem] leading-snug" style={{ background: "rgba(240,185,78,.14)", border: "1px solid rgba(240,185,78,.45)", color: "#f2d9a0" }}>You've changed your desk since you submitted — it isn't on the team's plan until you update.</div>}
             <Button variant="go" onClick={() => onPlay(mergeDecision(view, d, cityActions, poaches))} disabled={busy} className="mt-1 w-full py-3 text-base">
               {submitText()}
@@ -1377,7 +1511,7 @@ export function DecisionForm({
         <div className="flex items-center gap-3 px-4 pt-2.5">
           <div className="shrink-0">
             <div className="font-mono text-[0.5rem] uppercase tracking-[0.1em] text-inksoft">{team ? "Team locks" : "Cash · pre-sales"}</div>
-            <div className="tnum text-lg font-bold leading-none" style={{ color: overcommit ? "var(--color-brick)" : "var(--color-ink)" }}>{fmt.money(projectedCash)}</div>
+            <div className="tnum text-lg font-bold leading-none" style={{ color: overcommit ? "var(--color-brick)" : "var(--color-ink)" }}>{fmt.money(lockedCash)}</div>
           </div>
           <button onClick={() => onPlay(mergeDecision(view, d, cityActions, poaches))} disabled={busy} className="tt-btn tt-btn--go ml-auto min-w-0 whitespace-normal text-center leading-tight">
             {busy ? "Working…" : submitText(true)}

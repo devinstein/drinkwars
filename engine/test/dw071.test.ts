@@ -6,6 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { initGame, resolveRound, resolveConfig, equityCapacity, firmValuation, rankStandings, inContention, mergeMemberDecisions } from "../src/index.js";
 import { modulesOverride } from "../src/config/modules.js";
+import { preDw083 } from "./fixtures/legacy.js";
 import type { Config, FirmDecision, FirmState, WorldState } from "../src/types.js";
 
 const zero = (id: string, w: WorldState): FirmDecision => ({
@@ -115,9 +116,15 @@ test("labor market: a hire the firm can't pay for reports why; attrition isn't b
   const poor = firm(w, "firm_1"); // can't cover signing bonus + first salary (books kept balanced)
   poor.retained_earnings -= poor.cash - 1_000;
   poor.cash = 1_000;
-  const out = resolveRound(w, w.firms.map((x) => (x.id === "firm_1" ? { ...zero(x.id, w), hire_roles: ["head_brewer"] } : zero(x.id, w))), c);
-  assert.ok(out.result.events.some((e) => e.startsWith("HIRE FAILED: firm_1")), out.result.events.join("\n"));
+  const hire = (cfg: typeof c) => resolveRound(w, w.firms.map((x) => (x.id === "firm_1" ? { ...zero(x.id, w), hire_roles: ["head_brewer"] } : zero(x.id, w))), cfg);
+  // v3 (DW-084): the affordability guard cuts the hire before the books see it, and names it.
+  const out = hire(c);
+  assert.ok(out.result.events.some((e) => e.startsWith("BLOCKED: firm_1") && /head brewer/.test(e)), out.result.events.join("\n"));
   assert.ok(!out.result.events.some((e) => e.startsWith("HIRE: firm_1")));
+  // Pre-v3 (no guard): the per-hire check refuses it and says why.
+  const legacy = hire(preDw083(resolveConfig(modulesOverride(["laborMarket"]))));
+  assert.ok(legacy.result.events.some((e) => e.startsWith("HIRE FAILED: firm_1")), legacy.result.events.join("\n"));
+  assert.ok(!legacy.result.events.some((e) => e.startsWith("HIRE: firm_1")));
   // Run on with a hire in place until someone leaves; the line must not mention a rival.
   let world = resolveRound(w, w.firms.map((x) => (x.id === "firm_2" ? { ...zero(x.id, w), hire_roles: ["head_brewer", "sales_director", "ops_manager"] } : zero(x.id, w))), c).world;
   const departures: string[] = [];

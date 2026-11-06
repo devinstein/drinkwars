@@ -23,7 +23,9 @@ import { resolveFacilities, facilityCapacity } from "./facilities.js";
 import { computeMarketConduct } from "./conduct.js";
 import { peopleSnapshot, resolveEmployees } from "./employees.js";
 import { resolveMa } from "./ma.js";
-import { buildStatements, equityCapacity, firmValuation, nonZero, type PostCloseLedger } from "./finance.js";
+import { buildStatements, equityCapacity, firmValuation, nonZero, type FinancingGrant, type PostCloseLedger } from "./finance.js";
+import { applyAffordabilityGuard } from "./affordability.js";
+import { generateHiringMarket } from "./employees.js";
 import { invCfg, computeInventory, type InventoryFlow } from "./inventory.js";
 import { resolveAgreementActions, computeAgreementEffects, resolveContingentClauses } from "./coopetition.js";
 import { resolveLobbying } from "./lobbying.js";
@@ -79,6 +81,21 @@ export function resolveRound(prevWorld: WorldState, decisionList: FirmDecision[]
   // DW-071: price each firm's equity headroom on the state it walks INTO the round with —
   // before stocks advance or anything is spent — the same state the student form reads.
   const equityCapByFirm = new Map<FirmId, number>(participants.map((id) => [id, equityCapacity(w.firms.find((f) => f.id === id)!, c)]));
+
+  // DW-083 item 2: one sources-and-uses pass on that same beginning-of-round state, before anything
+  // is bought. Payouts and orders that don't fit inside cash + the financing actually granted are
+  // cut (finance.affordability_guard), and the guard's financing grant becomes the round's financing
+  // so the books can't re-price it on the advanced stocks. Off ⇒ the Sprint 1–2 engine.
+  const grantByFirm = new Map<FirmId, FinancingGrant>();
+  if (c.finance.affordability_guard) {
+    const candidates = c.modules?.employees?.enabled ? generateHiringMarket(c, w.seed, round) : [];
+    for (const id of participants) {
+      const g = applyAffordabilityGuard(w.firms.find((f) => f.id === id)!, decisions.get(id)!, c, round, equityCapByFirm.get(id) ?? Infinity, candidates);
+      decisions.set(id, g.decision);
+      grantByFirm.set(id, g.grant);
+      events.push(...g.events);
+    }
+  }
 
   // Step 3: resolve agreement actions (form/defect), trust effects & costs.
   const agRes = resolveAgreementActions(w, decisions, c, round);
@@ -409,6 +426,7 @@ export function resolveRound(prevWorld: WorldState, decisionList: FirmDecision[]
       round,
       instruments: { draw_convertible: d.draw_convertible ?? 0, draw_rbf: d.draw_rbf ?? 0 },
       equityCap: equityCapByFirm.get(f.id),
+      grant: grantByFirm.get(f.id),
       config: c,
     });
     f.cash = fin.next.cash;
@@ -423,6 +441,7 @@ export function resolveRound(prevWorld: WorldState, decisionList: FirmDecision[]
     f.inventory_units = flow ? flow.end : 0;
     f.inventory_value = flow ? flow.value_end : 0;
     f.ni_history.push(fin.pnl.net_income);
+    (f.ebitda_history ??= []).push(fin.pnl.ebit + fin.pnl.depreciation); // v3 audit: what the bank lends against
     finByFirm.set(f.id, fin);
     invByFirm.set(f.id, flow);
     // Banked-path firms accrue risk-free interest on parked capital (§8.4).
@@ -492,7 +511,7 @@ export function resolveRound(prevWorld: WorldState, decisionList: FirmDecision[]
     const segments: Record<SegmentId, SegmentResult> = {};
     for (const segId of activeSegmentIds) {
       segments[segId] = segMap[segId] ?? {
-        price: d.price[segId] ?? 0, share: 0, q_desired: 0, q_sold: 0, revenue: 0, utility: 0,
+        price: d.price[segId] ?? 0, share: 0, q_desired: 0, q_sold: 0, revenue: 0, utility: 0, cap_alloc: 0,
         attraction: { alpha: 0, price: 0, quality: 0, brand: 0, fit: 0, agreement: 0 },
       };
     }

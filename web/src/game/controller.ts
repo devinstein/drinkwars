@@ -6,8 +6,8 @@
  */
 import { GameOrchestrator, InMemoryAdapter, randomBreweryNames, renameFirms, getSeatForecasts, submitForecasts } from "drinkwars-server";
 import type { ForecastCall, SeatForecasts } from "drinkwars-server"; // DW-077 solo calls
-import { resolveConfig, decideAdaptive, ADAPTIVE_LEANS, inventoryEnabled, roleBriefings, summarizeAgreementsFor, summarizeLobbying, generateHiringMarket, projectMarkets, projectFirms, projectShocks, projectHistory, segmentDemandTotals, compareStanding } from "drinkwars-engine";
-import type { RoleBriefing, AllianceSummary, LobbySummary, Candidate } from "drinkwars-engine";
+import { resolveConfig, decideAdaptive, ADAPTIVE_LEANS, inventoryEnabled, roleBriefings, summarizeAgreementsFor, summarizeLobbying, generateHiringMarket, projectMarkets, projectMarketSizing, projectFirms, projectShocks, projectHistory, segmentDemandTotals, compareStanding } from "drinkwars-engine";
+import type { RoleBriefing, AllianceSummary, LobbySummary, Candidate, MarketSizingView } from "drinkwars-engine";
 import type { BalanceSheet, CashFlow, Config, ConfigOverride, FirmDecision, FirmId, FirmRoundResult, FirmState, Lean, ModulesConfig, PnL, RoundResult, SegmentId, WorldState } from "drinkwars-engine";
 import { rankDistrictsForType } from "../labels.js";
 import type { TeamPlan } from "./multiplayer.js";
@@ -193,9 +193,11 @@ export interface GameView {
   scoring?: Config["scoring"]; // scorecard config (weights, benchmark bands, accumulation window) — DW-045 panel inputs
   capacity?: Config["capacity"]; // $→units gain, build lag, wear-out, upkeep — lets the Tanks card bridge dollars to drinks
   finance?: Config["finance"]; // leverage reference / cap + coverage threshold — lets the Financing card state its own rules
+  stocks?: Config["stocks"]; // 11-06: the stock rules, so the guard's running-cost reserve (regulatory follows T_gov) matches the engine's
   briefings: RoleBriefing[]; // MOD-B05 role intel (empty when off)
   fx: Record<string, number>; // MOD-B02 export exchange rates (empty when off)
   markets: MarketView[]; // MOD-B01 per-market ("city") view for the City View (empty when geography off)
+  sizing?: MarketSizingView | null; // DW-084 TAM / SAM / SOM for the last resolved round (null before round 1)
   agreements: AllianceSummary[]; // MOD-A05/A06 active pacts you're party to (empty when off)
   lobbyInitiatives: LobbySummary[]; // MOD-A09 regulation initiatives + progress (empty when off)
   shocks: ShockSignal[]; // active + foreseeable upcoming shocks, for the map/header
@@ -303,6 +305,7 @@ export class SinglePlayerGame {
     // multiplayer render the same City View. Gated via activeMarkets (home/domestic always;
     // exports only with international on + past the unlock round).
     const markets: MarketView[] = projectMarkets(world, this.config, this.humanFirmId, game.current_round, last?.result.firm_results ?? [], (id) => this.nameOf(id));
+    const sizing = projectMarketSizing(this.config, this.humanFirmId, last?.result ?? null, (id) => this.config.modules?.geography?.markets.find((m) => m.id === id)?.label ?? id);
 
     return {
       round: game.current_round,
@@ -327,9 +330,11 @@ export class SinglePlayerGame {
       scoring: this.config.scoring,
       capacity: this.config.capacity,
       finance: this.config.finance,
+      stocks: this.config.stocks,
       briefings,
       fx: world.fx_rates ?? {},
       markets,
+      sizing,
       agreements: summarizeAgreementsFor(world, this.humanFirmId, (id) => this.nameOf(id)),
       lobbyInitiatives: summarizeLobbying(this.config, world),
       shocks,

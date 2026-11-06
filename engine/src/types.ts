@@ -57,6 +57,16 @@ export interface SegmentConfig {
 export interface DemandConfig {
   unmet_demand_lost_fraction: number; // §5.2
   cross_segment_substitution: number; // §5.3 thin-segment guard
+  /** DW-083 item 5. `false`: a firm with no supply routed to a market is not in that market's
+   *  choice set. Absent / `true` = the Sprint 1–2 rule — every active firm sat in every regional
+   *  logit, took first-choice share it could not serve, and 65% of those shoppers were lost
+   *  (inflating `q_desired` 2–2.8× for home-only firms). */
+  phantom_competitors?: boolean;
+  /** DW-084 (v3). Quality and brand count in full up to this stock and logarithmically above it:
+   *  the utility term is k·(1 + ln(x/k)) for x > k (continuous, same slope at the knee). In Sprint 2
+   *  a funded leader's linear stock lead (Q 81 / B 64 vs ≤ 30) became 91–94% share; at k = 20 the
+   *  dominant-strategy gate clears. Absent ⇒ linear (Sprint 1–2), so stored games replay. */
+  stock_knee?: number | null; // null = off (an instructor's explicit "linear", which survives JSON)
 }
 
 export interface StockParams {
@@ -130,6 +140,36 @@ export interface FinanceConfig {
   regulatory_burden_base: number; // opex; falls with T_gov
   regulatory_burden_halfsat: number;
   dividend_max_fraction: number; // cap dividend as fraction of cash
+  /** DW-083 item 3: a debt repayment never takes the round's closing cash below the covenant
+   *  cash floor (½ × scoring.cash_safety_threshold); the rest stays owed and the firm is told.
+   *  Absent ⇒ the Sprint 1–2 rule, capped by the debt alone (Sprint 2: a firm repaid itself to −$377). */
+  repay_cash_cap?: boolean;
+  /** DW-083 item 2: one sources-and-uses check before anything is bought. Orders (tanks, builds,
+   *  vertical assets, hires) and payouts (dividend, repayment) must fit inside beginning cash plus
+   *  the financing actually granted, after the round's committed spending (quality, brand, process,
+   *  stakeholder programs, research, market entry). Cut order: dividend → repayment → tanks →
+   *  builds → vertical assets → key hires → staff hires. "scale" trims a dividend, repayment or tank
+   *  order to what fits; "block" drops each item whole. Absent ⇒ the Sprint 1–2 rule (tanks unchecked;
+   *  builds/assets/hires checked one at a time against beginning cash, ignoring this round's loan). */
+  affordability_guard?: {
+    mode: "block" | "scale";
+    /** v3 audit: set the quarter's running costs (overhead, tank upkeep, regulatory burden, facility rent,
+     *  payroll, interest) aside before orders are sized, so a trimmed plan can't start the quarter at $0
+     *  with $60–100k of bills due whatever it sells. Absent ⇒ orders may use every dollar. */
+    reserve_running_costs?: boolean;
+  };
+  /** v3 audit: the bank also lends against cash flow. Bank debt after the draw may not exceed
+   *  `ebitda_multiple` × annualized trailing EBITDA (the mean of the last `trailing_rounds` quarters, ×4).
+   *  This is the lender's DSCR test in multiple form: a 1.25× DSCR on a five-year amortizing equipment
+   *  loan at the game's rates is about 3× EBITDA. Needs `min_history_rounds` of history; before that only
+   *  the leverage test applies (a start-up is lent against equity and collateral). Absent ⇒ leverage only. */
+  cash_flow_lending?: { ebitda_multiple: number; trailing_rounds?: number; min_history_rounds?: number };
+  /** DW-083 item 4 option (b): a round that ends below zero cash draws an emergency overdraft
+   *  (bank debt, priced on the usual grid — at that leverage and coverage, its top) of up to
+   *  `max_fraction_of_assets` × the firm's beginning-of-round assets; the firm counts as below the
+   *  line and only the covenant or an overdraft beyond the limit closes it. Absent ⇒ cash ≤ 0 closes
+   *  the firm at once (the Sprint 1–2 rule). */
+  overdraft?: { max_fraction_of_assets: number };
   solvency_runway_rounds: number; // covenant: sustained breach forces exit
   valuation: ValuationParams;
 }
@@ -904,6 +944,7 @@ export interface FirmState {
   primary_segment: SegmentId | null; // for reposition-required check on re-entry
   // History
   ni_history: number[]; // net income per round (for valuation normalization)
+  ebitda_history?: number[]; // v3 audit: EBITDA per round (the bank's cash-flow lending test); absent on older states
   // Running scorecard accumulators (§12.1)
   score_accum: { financial: number; market: number; intangible: number; stakeholder: number; rounds: number };
   // Health / solvency tracking
@@ -1129,6 +1170,9 @@ export interface SegmentResult {
   q_sold: number;
   revenue: number;
   utility: number;
+  /** DW-084: units of supply allotted to this category (supply × presence share; summed over markets with
+   *  geography on). `cap_alloc − q_sold` is the capacity that stood idle here. Absent on older results. */
+  cap_alloc?: number;
   attraction: { alpha: number; price: number; quality: number; brand: number; fit: number; agreement: number };
 }
 
@@ -1168,7 +1212,7 @@ export type OpexLineKey = (typeof OPEX_LINE_KEYS)[number];
 export const CF_LINE_KEYS = {
   operating: ["net_income", "depreciation", "inventory_change"],
   investing: ["tanks", "facilities", "vertical_assets", "capex", "divestment"],
-  financing: ["debt_draw", "debt_repay", "equity", "dividends", "convertible_draw", "convertible_repaid", "rbf_draw", "rbf_repaid"],
+  financing: ["debt_draw", "debt_repay", "overdraft", "equity", "dividends", "convertible_draw", "convertible_repaid", "rbf_draw", "rbf_repaid"],
   other: ["shock"],
   post_close: ["acquisition_paid", "acquired_cash", "sold_to_acquirer", "rebuild_fresh_capital", "rebuild_reentry_cost"],
 } as const;
@@ -1245,7 +1289,8 @@ export interface FirmRoundResult {
   // produced = producer capacity sited in the market; net = produced − q_sold; supplied = units
   // routed here to sell (DW-082d; absent on older results — supplied − q_sold went unsold); lanes =
   // inbound shipments (shortfall from the nearest base) for the trade-lane viz. (consumed == q_sold.)
-  markets: Record<string, { revenue: number; q_sold: number; entered: boolean; bySeg?: Record<SegmentId, { q_sold: number; share: number; price: number }>; produced: number; net: number; supplied?: number; lanes: { origin_market: string; units: number; cost: number }[] }> | null;
+  // q_desired / cap_alloc (DW-084): this firm's first-choice demand and allotted supply in that market + segment — absent on older results.
+  markets: Record<string, { revenue: number; q_sold: number; entered: boolean; bySeg?: Record<SegmentId, { q_sold: number; share: number; price: number; q_desired?: number; cap_alloc?: number }>; produced: number; net: number; supplied?: number; lanes: { origin_market: string; units: number; cost: number }[] }> | null;
   scorecard_raw: { financial: number; market: number; intangible: number; stakeholder: number };
   scorecard_norm: { financial: number; market: number; intangible: number; stakeholder: number };
   scorecard_cumulative: number;

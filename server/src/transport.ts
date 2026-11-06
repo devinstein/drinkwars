@@ -18,7 +18,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { loadConfig } from "drinkwars-engine/node";
-import { deepMerge, generateHiringMarket, projectMarkets, projectFirms, projectShocks, projectHistory, roleBriefings, summarizeAgreementsFor, summarizeLobbying } from "drinkwars-engine";
+import { deepMerge, generateHiringMarket, projectMarkets, projectMarketSizing, projectFirms, projectShocks, projectHistory, roleBriefings, summarizeAgreementsFor, summarizeLobbying } from "drinkwars-engine";
 import type { FirmDecision } from "drinkwars-engine";
 import { createClient } from "@supabase/supabase-js";
 import { GameOrchestrator, InMemoryAdapter, buildInstructorDashboard, createSupabaseAdapter, dashboardToCsv, randomBreweryNames, renameFirms, visibleEvents, withRequestCache, type StorageAdapter } from "./index.js";
@@ -184,6 +184,7 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
   let agreements: ReturnType<typeof summarizeAgreementsFor> = [];
   let lobbyInitiatives: ReturnType<typeof summarizeLobbying> = [];
   let markets: ReturnType<typeof projectMarkets> = []; // MOD-B01 per-team city view (same projection as single-player)
+  let sizing: ReturnType<typeof projectMarketSizing> = null; // DW-084 TAM / SAM / SOM
   let firms: ReturnType<typeof projectFirms> = []; // public snapshots; rivals' private fields redacted unless this team bought market research
   let shocks: ReturnType<typeof projectShocks> = [];
   let hiringMarket: ReturnType<typeof generateHiringMarket> = []; // MOD-B12 candidate pool (shared/public — same for every firm)
@@ -204,6 +205,8 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
       agreements = summarizeAgreementsFor(ws.state, own.id, nameOf);
       if (config) lobbyInitiatives = summarizeLobbying(config, ws.state);
       if (config) markets = projectMarkets(ws.state, config, own.id, pub.round, lastFull?.result.firm_results ?? [], nameOf);
+      // DW-084: TAM / SAM / SOM from the last resolved round — market totals only, no rival's own numbers.
+      if (config) sizing = projectMarketSizing(config, own.id, lastFull?.result ?? null, (id) => config.modules?.geography?.markets?.find((m: { id: string }) => m.id === id)?.label ?? id);
       if (config) firms = projectFirms(ws.state, config, own.id, lastFull?.result.firm_results ?? [], !!decision?.decision?.buy_info, nameOf);
       shocks = projectShocks(ws.state, pub.round, config ?? undefined, own.id);
       if (config) hiringMarket = generateHiringMarket(config, ws.state.seed, pub.round);
@@ -215,6 +218,7 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
     agreements,
     lobbyInitiatives,
     markets,
+    sizing,
     firms,
     shocks,
     history,

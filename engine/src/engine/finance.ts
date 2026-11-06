@@ -41,7 +41,37 @@ export interface FinanceInputs {
   round?: number; // current round (needed by MOD-B08 instrument terms)
   instruments?: { draw_convertible: number; draw_rbf: number }; // MOD-B08 draws this round
   equityCap?: number; // DW-071: most investors will fund this round (from equityCapacity); omit ⇒ no cap
+  /** DW-083: the financing already priced on the beginning-of-round state by the affordability
+   *  guard (finance.affordability_guard). When present it is the round's financing — the orders
+   *  were sized against it, so the books must not re-price it on the advanced stocks. */
+  grant?: FinancingGrant;
   config: Config;
+}
+
+/** DW-083: what the round's financing request actually raises. One function for the engine,
+ *  the affordability guard and the Decide form, so "the bank will lend up to $X" is the result. */
+export interface FinancingGrant {
+  equityAsked: number;
+  equityGross: number; // after the DW-071 equity gate
+  issueCost: number; // fraction lost to the issue fee
+  equityNet: number; // what lands in cash
+  repay: number; // debt repayment requested, capped at the debt (item 3 may trim it at close)
+  requestedDraw: number;
+  creditCapacity: number; // the most the bank will lend this round
+  limits: CreditLimits; // v3 audit: the two tests behind creditCapacity, and which one binds
+  draw: number; // min(requestedDraw, creditCapacity)
+  equityAfter: number; // beginning book equity + equityNet — what the bank lends against
+}
+
+/** v3 audit: the bank's two lending tests on one request. `byLeverage` is the §7.4 rule (debt ≤ max_leverage
+ *  × equity after this round's raise); `byCashFlow` is finance.cash_flow_lending (debt ≤ multiple × annualized
+ *  trailing EBITDA), null when the rule is off or the firm has too little history. `capacity` is the lower. */
+export interface CreditLimits {
+  capacity: number;
+  byLeverage: number;
+  byCashFlow: number | null;
+  annualEbitda: number | null; // trailing mean × 4, when the cash-flow test ran
+  binding: "leverage" | "cash_flow"; // which test sets `capacity` (leverage when they tie, or equity is gone)
 }
 
 export interface FinanceOutput {
@@ -65,9 +95,96 @@ export function regulatoryBurden(tGov: number, c: Config): number {
   return regulatory_burden_base * (regulatory_burden_halfsat / (tGov + regulatory_burden_halfsat));
 }
 
-export function equityIssueCost(tInv: number, c: Config): number {
+export function equityIssueCost(tInv: number, c: Pick<Config, "finance">): number {
   const cost = c.finance.equity_issue_cost_base + c.finance.equity_issue_cost_tinv_k * Math.max(0, c.finance.tinv_ref - tInv);
   return Math.min(0.9, Math.max(0, cost));
+}
+
+/** The covenant's cash test (§8.2): a firm is in breach territory under half the cash-safety line. */
+export const covenantCashFloor = (c: Pick<Config, "scoring">): number => c.scoring.cash_safety_threshold * 0.5;
+/** DW-083 4(b): the emergency overdraft line on the beginning-of-round state — a fraction of assets (cash +
+ *  PP&E + inventory at cost), 0 when the overdraft is off. The books compute the same sum in place. */
+export const overdraftLimit = (f: Pick<FirmState, "cash" | "ppe_book"> & { inventory_value?: number }, c: Pick<Config, "finance">): number =>
+  c.finance.overdraft ? Math.max(0, c.finance.overdraft.max_fraction_of_assets) * Math.max(0, f.cash + f.ppe_book + Math.max(0, f.inventory_value ?? 0)) : 0;
+
+/** DW-083 item 1: the most the bank will lend this round — the draw that keeps post-financing debt
+ *  at or under max_leverage × (beginning book equity + this round's net equity raise). `repay` is
+ *  the repayment already netted off the debt. 0 once equity is gone. The arithmetic is the one
+ *  buildStatements has always applied, so the form's figure is the engine's. */
+export function creditLimits(
+  f: Pick<FirmState, "debt" | "paid_in_capital" | "retained_earnings"> & { ebitda_history?: number[] }, c: Pick<Config, "finance">, equityNet = 0, repay = 0,
+): CreditLimits {
+  const equityAfter = f.paid_in_capital + equityNet + f.retained_earnings;
+  const maxNewDebt = c.finance.max_leverage * Math.max(equityAfter, EPS);
+  const byLeverage = Math.max(0, maxNewDebt - (f.debt - repay));
+  const cf = c.finance.cash_flow_lending;
+  const hist = f.ebitda_history ?? [];
+  let byCashFlow: number | null = null;
+  let annualEbitda: number | null = null;
+  if (cf && hist.length >= (cf.min_history_rounds ?? 1) && hist.length > 0) {
+    const recent = hist.slice(-(cf.trailing_rounds ?? 4));
+    annualEbitda = (recent.reduce((a, x) => a + x, 0) / recent.length) * 4;
+    byCashFlow = Math.max(0, cf.ebitda_multiple * Math.max(0, annualEbitda) - (f.debt - repay));
+  }
+  const capacity = byCashFlow == null ? byLeverage : Math.min(byLeverage, byCashFlow);
+  const binding: CreditLimits["binding"] = byLeverage <= 0 ? "leverage" : byCashFlow != null && byCashFlow < byLeverage ? "cash_flow" : "leverage";
+  return { capacity, byLeverage, byCashFlow, annualEbitda, binding };
+}
+
+export function creditCapacity(
+  f: Pick<FirmState, "debt" | "paid_in_capital" | "retained_earnings"> & { ebitda_history?: number[] }, c: Pick<Config, "finance">, equityNet = 0, repay = 0,
+): number {
+  return creditLimits(f, c, equityNet, repay).capacity;
+}
+
+/** Why the bank lends no more than it does — the clause after the dash in CREDIT / CREDIT REFUSED, and the
+ *  form's own reason. `whose` = "its" for the news, "your" for the form. */
+export function creditReason(lim: CreditLimits, equityAfter: number, c: Pick<Config, "finance">, whose: "its" | "your" = "its"): string {
+  const m = c.finance.cash_flow_lending?.ebitda_multiple ?? 0;
+  const n = c.finance.cash_flow_lending?.trailing_rounds ?? 4;
+  if (lim.capacity > 0) return lim.binding === "cash_flow" ? `debt may not exceed ${m}× annual operating cash flow (EBITDA)` : `debt may not exceed ${c.finance.max_leverage}× equity`;
+  if (equityAfter <= 0) return `losses have used up ${whose} equity, and the bank lends against equity`;
+  if (lim.binding === "cash_flow") {
+    return (lim.annualEbitda ?? 0) <= 0
+      ? `the bank lends against operating cash flow, and ${whose === "its" ? "the firm's" : "yours"} has been at or below zero over the last ${n} quarter${n === 1 ? "" : "s"}`
+      : `${whose} debt already sits at ${m}× ${whose} annual operating cash flow`;
+  }
+  return `${whose} debt already sits at ${c.finance.max_leverage}× ${whose} equity`;
+}
+
+/** The debt rate before any covenant penalty: risk-free plus a spread that rises with leverage and falls with
+ *  investor relations (and reputation), floored at min_spread. The same arithmetic buildStatements prices with;
+ *  exported so the affordability guard can reserve this quarter's interest on the state it sees. */
+export function debtRate(leverage: number, tInv: number, c: Pick<Config, "finance">, spreadReduction = 0): number {
+  let spread =
+    c.finance.base_spread +
+    c.finance.spread_leverage_k * Math.max(0, leverage - c.finance.leverage_ref) -
+    c.finance.spread_tinv_k * (tInv - c.finance.tinv_ref) -
+    Math.max(0, spreadReduction); // MOD-B10 reputation discount
+  spread = Math.max(c.finance.min_spread ?? 0, spread);
+  return c.finance.r_f + spread;
+}
+
+/** Price a round's financing request on a firm state (DW-071 equity gate, issue fee, §7.4 credit
+ *  rationing). `equityCap` = equityCapacity on the beginning-of-round state (omit ⇒ no gate). */
+export function financingGrant(
+  f: Pick<FirmState, "debt" | "paid_in_capital" | "retained_earnings" | "T_inv"> & { ebitda_history?: number[] },
+  c: Pick<Config, "finance">,
+  req: { debt_draw: number; debt_repay: number; equity_raise: number },
+  equityCap = Infinity,
+): FinancingGrant {
+  const issueCost = equityIssueCost(f.T_inv, c);
+  const equityAsked = Math.max(0, req.equity_raise);
+  const equityGross = Math.min(equityAsked, equityCap);
+  const equityNet = equityGross * (1 - issueCost);
+  const repay = Math.min(Math.max(0, req.debt_repay), f.debt);
+  const limits = creditLimits(f, c, equityNet, repay);
+  const cap = limits.capacity;
+  const requestedDraw = Math.max(0, req.debt_draw);
+  return {
+    equityAsked, equityGross, issueCost, equityNet, repay, requestedDraw, creditCapacity: cap, limits,
+    draw: Math.min(requestedDraw, cap), equityAfter: f.paid_in_capital + equityNet + f.retained_earnings,
+  };
 }
 
 export function buildStatements(input: FinanceInputs): FinanceOutput {
@@ -80,13 +197,13 @@ export function buildStatements(input: FinanceInputs): FinanceOutput {
   const ppeBegin = f.ppe_book;
 
   // --- Financing actions (§13 step 2) ---
-  const issueCost = equityIssueCost(f.T_inv, c);
   const events: string[] = [];
+  // One pricing of the request (DW-083): the affordability guard's beginning-of-round grant when
+  // it ran, else priced here on the firm as the books see it (the arithmetic this step always used).
+  const grant = input.grant ?? financingGrant(f, c, input.financing, input.equityCap ?? Infinity);
+  const { equityAsked, equityGross, equityNet, repay, requestedDraw, draw, equityAfter } = grant;
   // DW-071 equity gate: investors fund at most the cap. The shortfall is simply not raised
   // (no cost, no dilution) and the firm is told why.
-  const equityAsked = Math.max(0, input.financing.equity_raise);
-  const equityCap = input.equityCap ?? Infinity;
-  const equityGross = Math.min(equityAsked, equityCap);
   if (equityAsked > equityGross + 0.5) {
     events.push(
       equityGross > 0.5
@@ -94,16 +211,17 @@ export function buildStatements(input: FinanceInputs): FinanceOutput {
         : `EQUITY MARKET CLOSED: no investor will fund ${f.id}'s $${fmNum(equityAsked)} raise — its losses have pushed its valuation to zero or below`,
     );
   }
-  const equityNet = equityGross * (1 - issueCost);
-  const repay = Math.min(Math.max(0, input.financing.debt_repay), debtBegin);
-
-  // Credit rationing: cap the new draw so post-financing leverage ≤ max_leverage.
-  const equityAfter = paidBegin + equityNet + retainedBegin;
-  const maxNewDebt = c.finance.max_leverage * Math.max(equityAfter, EPS);
-  const requestedDraw = Math.max(0, input.financing.debt_draw);
-  const allowedDraw = Math.max(0, maxNewDebt - (debtBegin - repay));
-  const draw = Math.min(requestedDraw, allowedDraw);
+  // Credit rationing (creditCapacity): the draw is cut so post-financing leverage ≤ max_leverage.
   let creditRationed = draw < requestedDraw - EPS;
+  // DW-083 item 6: say so in the round's news, like the equity line — it used to surface only as
+  // "Credit: Rationed" on the CFO card AFTER the round, too late for a firm the cut had just closed.
+  if (requestedDraw > draw + 0.5) {
+    events.push(
+      draw > 0.5
+        ? `CREDIT: the bank lends ${f.id} only $${fmNum(draw)} of the $${fmNum(requestedDraw)} it asked — ${creditReason(grant.limits, equityAfter, c)}`
+        : `CREDIT REFUSED: the bank lends ${f.id} nothing of the $${fmNum(requestedDraw)} it asked — ${creditReason(grant.limits, equityAfter, c)}`,
+    );
+  }
 
   const debtEff = debtBegin + draw - repay;
 
@@ -191,19 +309,12 @@ export function buildStatements(input: FinanceInputs): FinanceOutput {
   // astronomically — the firm still fails, with sane numbers. ---
   const instrDebtNow = (conv?.principal ?? 0) + rbfPrin;
   const leverage = Math.min(10, (debtEff + instrDebtNow) / Math.max(equityAfter, EPS));
-  let spread =
-    c.finance.base_spread +
-    c.finance.spread_leverage_k * Math.max(0, leverage - c.finance.leverage_ref) -
-    c.finance.spread_tinv_k * (f.T_inv - c.finance.tinv_ref) -
-    Math.max(0, input.spreadReduction ?? 0); // MOD-B10 reputation discount
-  // Floor, not zero (DW-056). The two discounts above are each larger than base_spread on
-  // their own, so a firm with strong investor relations — or high reputation under MOD-B10 —
-  // used to clamp the spread to 0 and borrow at the risk-free rate. Worse, it made leverage
-  // free: a well-connected firm at the 3x cap paid LESS than a debt-free one, inverting the
-  // whole lesson. A lender's floor is its own funding cost plus something; risk-free is not
-  // on the menu. Legacy configs without the field keep the old 0 clamp.
-  spread = Math.max(c.finance.min_spread ?? 0, spread);
-  let rDebt = c.finance.r_f + spread;
+  // Floor, not zero (DW-056): a firm with strong investor relations — or high reputation under MOD-B10 —
+  // used to clamp the spread to 0 and borrow at the risk-free rate, which made leverage free (a
+  // well-connected firm at the 3x cap paid LESS than a debt-free one). A lender's floor is its own funding
+  // cost plus something. Legacy configs without min_spread keep the old 0 clamp. (debtRate: the same
+  // arithmetic, exported for the affordability guard's interest reserve.)
+  let rDebt = debtRate(leverage, f.T_inv, c, input.spreadReduction ?? 0);
   let interest = rDebt * debtEff + convInterest + rbfInterest;
   let coverage = interest > EPS ? ebit / interest : ebit >= 0 ? 999 : 0;
   if (coverage < c.finance.coverage_threshold) {
@@ -223,10 +334,31 @@ export function buildStatements(input: FinanceInputs): FinanceOutput {
 
   const netIncome = ebit - interest;
 
+  // --- DW-083 item 3: a repayment may not take the closing cash below the covenant floor (the
+  // dividend has always been cash-capped; repayment was capped only by the debt). Interest above
+  // is priced on the planned balance; whatever isn't repaid simply stays owed. Flag off ⇒ repayPaid
+  // === repay and every expression below is the pre-DW-083 one, bit for bit. ---
+  let repayPaid = repay;
+  if (c.finance.repay_cash_cap && repay > 0) {
+    const floor = covenantCashFloor(c);
+    const cashBeforeRepay =
+      cashBegin + (netIncome + depreciation - deltaInventory) - Math.max(0, input.invest.cap) + disposal +
+      (draw + equityNet) + convDraw + rbfDraw - rbfPrinPaid - Math.max(0, input.cashHit);
+    const room = Math.max(0, cashBeforeRepay - floor);
+    if (repay > room) {
+      repayPaid = room;
+      if (repay - room >= 0.5) {
+        events.push(room >= 0.5
+          ? `REPAYMENT CUT: ${f.id} repays $${fmNum(room)} of the $${fmNum(repay)} it planned — a repayment may not take cash below the $${fmNum(floor)} covenant floor; the rest stays owed`
+          : `REPAYMENT CUT: ${f.id} repays nothing of the $${fmNum(repay)} it planned — its cash would fall below the $${fmNum(floor)} covenant floor; the debt stays owed`);
+      }
+    }
+  }
+
   // --- Convertible maturity (MOD-B08): repay if the cash is there, else convert ---
   const cashPreMaturity =
     cashBegin + (netIncome + depreciation - deltaInventory) - Math.max(0, input.invest.cap) + disposal +
-    (draw - repay + equityNet) + convDraw + rbfDraw - rbfPrinPaid;
+    (draw - repayPaid + equityNet) + convDraw + rbfDraw - rbfPrinPaid;
   if (fiOn && conv && convDraw === 0 && round >= conv.drawn_round + fi.convertible.term) {
     if (cashPreMaturity >= conv.principal) {
       convRepaid = conv.principal;
@@ -245,13 +377,39 @@ export function buildStatements(input: FinanceInputs): FinanceOutput {
   // --- Cash flow (operating subtracts ΔInventory; = 0 in legacy mode) ---
   const operating = netIncome + depreciation - deltaInventory;
   const investing = -Math.max(0, input.invest.cap) + disposal; // capex out, divest proceeds in
-  const financing = draw - repay + equityNet - dividend + convDraw + rbfDraw - rbfPrinPaid - convRepaid;
+  let financing = draw - repayPaid + equityNet - dividend + convDraw + rbfDraw - rbfPrinPaid - convRepaid;
   const cashHit = Math.max(0, input.cashHit);
-  const deltaCash = operating + investing + financing - cashHit;
-  const cashNext = cashBegin + deltaCash;
+  let deltaCash = operating + investing + financing - cashHit;
+  let cashNext = cashBegin + deltaCash;
+  // bank debt carried in firm state (a trimmed repayment leaves the difference owed)
+  let debtNext = repayPaid === repay ? debtEff : debtBegin + draw - repayPaid;
+
+  // --- DW-083 item 4(b): a round that closes below zero draws an emergency overdraft — bank debt,
+  // so next round prices it on the grid (at that leverage and coverage, near its top) — up to a
+  // fraction of the assets the firm began the round with. Short of the limit the firm closes at 0
+  // cash and below the line, so only the covenant ends it; past the limit the cash stays negative
+  // and exit.ts closes it. Flag off ⇒ nothing here runs. ---
+  let overdraft = 0;
+  const odCfg = c.finance.overdraft;
+  if (odCfg && cashNext < 0) {
+    const need = -cashNext;
+    const limit = Math.max(0, odCfg.max_fraction_of_assets) * Math.max(0, cashBegin + ppeBegin + invBegin);
+    overdraft = Math.min(need, limit);
+    financing += overdraft;
+    debtNext += overdraft;
+    if (overdraft >= need) {
+      cashNext = 0;
+      deltaCash = -cashBegin;
+    } else {
+      deltaCash += overdraft;
+      cashNext = cashBegin + deltaCash;
+    }
+    events.push(overdraft >= need
+      ? `OVERDRAFT: the bank covers ${f.id}'s $${fmNum(need)} shortfall with an emergency overdraft — it is debt now, priced at the penalty rate`
+      : `OVERDRAFT EXHAUSTED: ${f.id} is $${fmNum(need)} short and the bank's emergency line stops at $${fmNum(limit)} (${Math.round(odCfg.max_fraction_of_assets * 100)}% of its assets)`);
+  }
 
   // --- Balance sheet update ---
-  const debtNext = debtEff; // bank debt carried in firm state
   const instrDebtNext = (conv?.principal ?? 0) + rbfPrin; // instrument balances (also debt)
   const debtTotal = debtNext + instrDebtNext; // the balance-sheet debt line
   const paidNext = paidBegin + equityNet + convConverted; // conversion = debt → equity
@@ -306,7 +464,7 @@ export function buildStatements(input: FinanceInputs): FinanceOutput {
       divestment: disposal,
     }),
     financing: nonZero({
-      debt_draw: draw, debt_repay: -repay, equity: equityNet, dividends: -dividend,
+      debt_draw: draw, debt_repay: -repayPaid, overdraft, equity: equityNet, dividends: -dividend,
       convertible_draw: convDraw, convertible_repaid: -convRepaid, rbf_draw: rbfDraw, rbf_repaid: -rbfPrinPaid,
     }),
     other: nonZero({ shock: -cashHit }),

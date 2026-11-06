@@ -132,7 +132,7 @@ export function resolveFacilities(world: WorldState, decisions: Map<FirmId, Firm
         out.events.push(`BUILD BLOCKED: ${f.id} is at its facility cap (${cfg.max_facilities}) — ${t.label.toLowerCase()} not built`);
         continue;
       }
-      if (f.cash < t.base_cost) {
+      if (!c.finance.affordability_guard && f.cash < t.base_cost) { // DW-083: the guard already sized the round's builds against cash + financing
         out.events.push(`BUILD BLOCKED: ${f.id} can't fund a ${t.label.toLowerCase()} (needs $${fmNum(t.base_cost)})`);
         continue; // can't finance the build this round
       }

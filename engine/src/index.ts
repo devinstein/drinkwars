@@ -16,18 +16,24 @@ export type { ModuleMeta, ModuleCategory, Preset } from "./config/modules.js";
 export { validateConfig, ConfigError } from "./config/schema.js";
 export { initGame, initFirm } from "./engine/init.js";
 export { resolveRound } from "./engine/resolve.js";
-export { firmValuation, equityCapacity, equityIssueCost, InvariantError, statementLineGaps } from "./engine/finance.js";
-export type { PostCloseLedger } from "./engine/finance.js";
+export { firmValuation, equityCapacity, equityIssueCost, creditCapacity, creditLimits, creditReason, debtRate, financingGrant, covenantCashFloor, overdraftLimit, InvariantError, statementLineGaps } from "./engine/finance.js";
+export type { PostCloseLedger, FinancingGrant, CreditLimits } from "./engine/finance.js";
+export { applyAffordabilityGuard, committedSpend, instrumentDrawsEstimate } from "./engine/affordability.js";
+export { runningCostEstimate } from "./engine/outlook.js";
+export { advancePipeline, updateStock } from "./engine/stocks.js"; // the Decide form's tank outlook runs the engine's own rule
+export { stockUtility } from "./engine/demand.js";
+export type { RunningCosts } from "./engine/outlook.js";
+export type { AffordabilityResult, GuardCut, GuardItemKind } from "./engine/affordability.js";
 export { resilienceMitigation, rollTimeline } from "./engine/shocks.js";
 export { activeMarkets, segmentDemandTotals } from "./engine/geography.js";
 export { roleBriefings } from "./engine/briefings.js";
 export type { RoleBriefing } from "./engine/briefings.js";
 // Coopetition (MOD-A05/A06) + lobbying (MOD-A09) presentation summaries.
-export { summarizeAgreementsFor, summarizeLobbying, projectMarkets, projectFirms, projectShocks, projectHistory } from "./engine/views.js";
+export { summarizeAgreementsFor, summarizeLobbying, projectMarkets, projectMarketSizing, projectFirms, projectShocks, projectHistory } from "./engine/views.js";
 export { roundIsScored, inContention, rankStandings, compareStanding, PROFITABILITY_CLAMP } from "./engine/scoring.js";
 export { sanitizeDecision } from "./engine/sanitize.js";
 export { TERM_BOUNDS, clampTerms, PROPOSAL_TTL_ROUNDS } from "./engine/coopetition.js";
-export type { AllianceSummary, AllianceClauseSummary, LobbySummary } from "./engine/views.js";
+export type { AllianceSummary, AllianceClauseSummary, LobbySummary, MarketSizingView, SizingMarketRow } from "./engine/views.js";
 export { generateHiringMarket } from "./engine/employees.js";
 export { mergeMemberDecisions, composeTeamDecision, sameLever, seatTouched, DESK_LEVERS, ALL_LEVERS, ROLE_DESK } from "./engine/seats.js";
 export type { Composition } from "./engine/seats.js";

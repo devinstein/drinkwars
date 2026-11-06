@@ -27,7 +27,8 @@ import { TapDispatch } from "../components/TapDispatch.js";
 import { Emblem } from "../components/FacilityGlyph.js";
 import { firmColor, firmEmblem } from "../lib/teamColors.js";
 import { DESK_LEVERS, ROLE_DESK } from "drinkwars-engine";
-import { ackConflict, cancelsRequest, computeConflicts, dropsTheirs, leverText, offDeskEdits, openConflicts, same } from "../lib/reconcile.js";
+import { ackConflict, cancelsRequest, computeConflicts, dropsTheirs, leverText, offDeskEdits, openConflicts, same, teamOutcome } from "../lib/reconcile.js";
+import { moneyOutcome, tankUnitsOf } from "../lib/moneyCheck.js";
 import { buildKey, cityActionsFrom, dedupeBuilds, keepUntouchedMarkets, marketPresenceFrom, marketsTouched, poachesFrom, type CityActions, type CityBuildOrder } from "../game/cityActions.js";
 import { CallsTickets, useCallsDesk, type CallsClient } from "../components/Calls.js"; // DW-077 calls tickets
 import { RoundResolved } from "../components/RoundResolved.js"; // DW-077 results page
@@ -312,8 +313,8 @@ export function Play({
   const detailSnapshot = detailFirm ? view.firms.find((f) => f.firm_id === detailFirm) ?? null : null;
 
   // DW-079: the pre-submit check is an in-app dialog (see SubmitConfirm) — resolves true on "Submit anyway".
-  const [confirmAsk, setConfirmAsk] = useState<{ lines: string[]; done: (ok: boolean) => void } | null>(null);
-  const askConfirm = (lines: string[]) => new Promise<boolean>((done) => setConfirmAsk({ lines, done }));
+  const [confirmAsk, setConfirmAsk] = useState<{ lines: string[]; note?: string; done: (ok: boolean) => void } | null>(null);
+  const askConfirm = (lines: string[], note?: string) => new Promise<boolean>((done) => setConfirmAsk({ lines, note, done }));
   // DW-080: a check left open across a resolve must never send last round's form into the new one —
   // close it (as "Go back") the moment the round or its state moves.
   const confirmRef = useRef(confirmAsk);
@@ -331,6 +332,7 @@ export function Play({
     // for the firm — DW-081), so a seat's slice never re-claims it: the CEO read as having bought it too.
     let d = infoLocked && !d0.buy_info && !(mp && view.teamPlan) ? { ...d0, buy_info: true } : d0;
     let covers: Set<string> | undefined;
+    let checked = false; // the "Before you submit" check has run (team: conflicts + money together)
     if (mp && seatRole && view.teamPlan) {
       if (decision) d = keepUntouchedMarkets(view, d, decision, cityActions); // every seat, CEO included
       // A specialist's slice carries the firm's values (as mirrored in the form) on every desk
@@ -367,7 +369,11 @@ export function Play({
       // all round, so the dialog never repeats for the same lever and values).
       const open = openConflicts(computeConflicts(view, seatRole, d, standing));
       const off = offDeskEdits(view, seatRole, d, standing);
-      if (open.length || off.length) {
+      // 11-06 (Devin): what the round will actually fund — the guard's cuts and the lenders' caps — on the plan the
+      // team runs with this slice in it, said before anyone submits it (a $1.2M tank order that runs as $398k).
+      const moneyLines = moneyOutcome(view, teamOutcome(view, seatRole, d, standing)?.decision ?? d, infoCost)?.lines ?? [];
+      checked = true;
+      if (open.length || off.length || moneyLines.length) {
         const T = (f: string, v: unknown) => leverText(f, v, view);
         // DW-082: against a teammate's build / hire / offer, your "none" is a cancel — the button says so
         const useYours = (c: { field: unknown; mine: unknown }) => cancelsRequest(String(c.field), c.mine) ? "press Cancel it in the commit panel to drop it" : "change it, or press Keep mine in the commit panel, to use yours";
@@ -376,6 +382,7 @@ export function Play({
         const drops = (c: { mine: unknown; theirs: unknown }, how: string) => (dropsTheirs(c.mine, c.theirs) ? ` Yours replaces theirs, so theirs is dropped — ${how}.` : "");
         const keepBoth = "to keep both, press Use theirs in the commit panel after this update";
         const lines = [
+          ...moneyLines,
           ...open.slice(0, 6).map((c) => c.cover?.ownerName
             ? `${c.label}: ${c.who} suggested ${T(String(c.field), c.theirs)} for ${c.cover.ownerName}'s desk; you have ${T(String(c.field), c.mine)}. ${c.cover.decided ? `${c.cover.ownerName} decides — it's their desk.` : c.winner === "me" ? `${cancelsRequest(String(c.field), c.mine) ? "It's cancelled" : "Yours will be used"} unless ${c.cover.ownerName} changes it.${drops(c, keepBoth)}` : `Theirs will be used ${c.cover.sticks ? `unless ${c.cover.ownerName} cancels it` : `until ${c.cover.ownerName} submits`} — ${useYours(c)}.`}`
             : c.cover
@@ -391,6 +398,14 @@ export function Play({
         if (!(await askConfirm(lines))) return;
         if (roundRef.current !== formRound) return; // the round moved while the check was open
         for (const c of open) ackConflict(c);
+      }
+    }
+    if (!checked) {
+      // Solo (and a one-student firm in a class game): the same money check on the plan as it will run.
+      const moneyLines = moneyOutcome(view, d, infoCost)?.lines ?? [];
+      if (moneyLines.length) {
+        if (!(await askConfirm(moneyLines, "Go back to change the plan, or submit it as it is and the round makes these changes."))) return;
+        if (roundRef.current !== formRound) return;
       }
     }
     // DW-077: the calls ride with the desk submit. Solo resolves the round inside onPlay, so its calls
@@ -422,7 +437,7 @@ export function Play({
       {detailSnapshot && (
         <FirmDetail firm={detailSnapshot} view={view} infoActive={infoActive} poaches={poaches} onPoach={queuePoach} onClose={() => setDetailFirm(null)} />
       )}
-      {confirmAsk && <SubmitConfirm lines={confirmAsk.lines} onAnswer={(ok) => { confirmAsk.done(ok); setConfirmAsk(null); }} />}
+      {confirmAsk && <SubmitConfirm lines={confirmAsk.lines} note={confirmAsk.note} onAnswer={(ok) => { confirmAsk.done(ok); setConfirmAsk(null); }} />}
       {seated && <SeatEdge role={seatRole!} />}
       {seated && <div className="-mx-3 -mt-4 mb-3 sm:hidden"><SeatMobileBar role={seatRole!} name={seatName} /></div>}
       {takeover && <EventTakeover events={unseen} role={mp ? seatRole : null} name={seatName} round={shownRound} deadlineAt={liveDeadline ? deadlineAt : null} onDismiss={dismiss} />}
@@ -544,6 +559,16 @@ export function Play({
                     ) : (
                       <p className="text-sm text-ink">Your brewery ran out of road. Keep watching the shakeout, or start a new run.</p>
                     )}
+                    {/* DW-083 item 4: say the rule that closed it — Sprint 2's students were told a firm needed five bad
+                        quarters to close, while cash ≤ 0 closed it at once. */}
+                    {view.finance && (() => {
+                      const fin = view.finance;
+                      const safety = view.scoring?.cash_safety_threshold ?? 120_000;
+                      const cashRule = fin.overdraft
+                        ? `a quarter's shortfall runs past the bank's emergency overdraft (${fmt.pct(fin.overdraft.max_fraction_of_assets)} of its assets)`
+                        : "a quarter ends with cash at $0 or below";
+                      return <p className="mt-2 text-[0.78rem] leading-snug text-inksoft">A brewery closes when {cashRule}, or after {fin.solvency_runway_rounds} straight quarters below the health line (cash under {fmt.money(safety)} or interest coverage under 1×) that end with coverage under 1× and cash under {fmt.money(safety * 0.5)}.</p>;
+                    })()}
                     {!mp && (
                       <div className="mt-3 flex gap-2">
                         <Button variant="go" onClick={() => handlePlay({} as FirmDecision)} disabled={busy}>{busy ? "…" : "Watch next round →"}</Button>
@@ -559,7 +584,7 @@ export function Play({
                 {/* The Round Table is a TEAM surface (who has submitted, the composed plan). Alone at
                     the controls it only repeats the desk chips above the form, so solo play skips it. */}
                 {view.ownActive && !view.complete && mp && seatRole && (
-                  <RoundTable view={view} rationale={rationale} seatRole={seatRole} standing={standing} onFocusDesk={setDesk} />
+                  <RoundTable view={view} rationale={rationale} seatRole={seatRole} standing={standing} onFocusDesk={setDesk} infoCost={infoCost} />
                 )}
                 {view.briefings.length > 0 && <Boardroom briefings={view.briefings} />}
                 {view.history.length > 1 && (
@@ -572,7 +597,7 @@ export function Play({
                     </div>
                   </Card>
                 )}
-                <Events events={parseEvents(view.events, view.names[view.own.id] ?? "")} />
+                <Events events={parseEvents(view.events, view.names[view.own.id] ?? "", { tankUnits: tankUnitsOf(view) })} />
               </div>
               </div>
             </div>

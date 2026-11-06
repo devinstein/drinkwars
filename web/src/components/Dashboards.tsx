@@ -281,8 +281,12 @@ export function CapacityVsDemand({ result, cap }: { result: FirmRoundResult; cap
         {spillGross > 0.5 && (
           <span className="text-hop">Spillover +{fmt.int(spillGross)}u — rivals ran out and some of their buyers settled for you. </span>
         )}
-        {unservedGross > 0.5 && spillGross > 0.5 && (
-          <span>Net, the bars are {fmt.int(Math.abs(desired - sold))}u {desired > sold ? "short" : "long"}: you turned buyers away in one category while catching a rival's overflow in another. </span>
+        {unservedGross > 0.5 && (spillGross > 0.5 || idle > 0.5) && (
+          // Net of the overflow caught AND the tanks left idle — the same arithmetic as the Market size card's
+          // "the other N is what more tanks would close", so the two cards on this screen agree.
+          unservedGross - spillGross - idle > 0.5
+            ? <span>Net of that overflow and the idle tanks, {fmt.int(unservedGross - spillGross - idle)}u still had nowhere to brew: you turned buyers away in one category while {spillGross > 0.5 ? "catching a rival's overflow" : "leaving tanks idle"} in another. </span>
+            : <span>Net, nothing: the overflow you caught and the tanks you left idle could have brewed every unit you turned away — a split problem, not a tank problem. </span>
         )}
         {unservedGross <= 0.5 && spillGross <= 0.5 && "Every buyer who chose you was served. "}
         {idle > 0.5 ? <span>Idle capacity {fmt.int(idle)}u paying upkeep for nothing.</span> : "Every tank earned its keep."}
@@ -548,7 +552,7 @@ export function CostOfCapitalCockpit({ coc, finance }: { coc: FirmRoundResult["c
       <Cap>
         {rationed
           ? cov < 1.5
-            ? "Coverage fell under the 1.5× covenant — the bank moved this firm onto the penalty grid. The spread widens with how thin the cover actually is, reaching its full 5%/qtr only at zero operating income, and new credit is rationed meanwhile."
+            ? "Coverage fell under the 1.5× covenant — the bank moved this firm onto the penalty grid. The spread widens with how thin the cover actually is, reaching its full 5%/qtr only at zero operating income. The bank still lends up to the 3× equity cap, at this price."
             : "A requested draw was capped: it would have pushed debt past 3× equity, the borrowing limit."
           : `High leverage or thin coverage widens the spread. The ticks mark where each dial turns: ${levRef.toFixed(1)}× debt-to-equity, ${covThr.toFixed(1)}× coverage, and the ${fmt.pct1(healthy)}/qtr rate a well-covered borrower pays.`}
       </Cap>

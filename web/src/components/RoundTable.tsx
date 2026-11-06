@@ -14,6 +14,7 @@ import { ROLE_DESK } from "drinkwars-engine";
 import type { GameView, TeamPlanSeat } from "../game/controller.js";
 import { PERSONAS, type CockpitDesk } from "../deskMeta.js";
 import { planCash } from "../lib/planSummary.js";
+import { moneyOutcome } from "../lib/moneyCheck.js";
 import { leverText } from "../lib/reconcile.js";
 import { planTable, TABLE_DESKS, type TableDesk } from "../lib/roundTable.js";
 import { fmt } from "../labels.js";
@@ -22,8 +23,9 @@ import { InfoDot } from "./InfoDot.js";
 
 const DESK_ORDER: CockpitDesk[] = ["commercial", "operations", "people", "finance", "strategy"];
 
-export function RoundTable({ view, rationale, seatRole, standing, onFocusDesk }: {
+export function RoundTable({ view, rationale, seatRole, standing, onFocusDesk, infoCost = 0 }: {
   view: GameView;
+  infoCost?: number; // research price, for the guard's committed spend
   rationale: Record<string, string>;
   seatRole?: string | null;
   standing?: FirmDecision | null; // DW-076: the firm's standing plan — what "unchanged" means
@@ -44,7 +46,7 @@ export function RoundTable({ view, rationale, seatRole, standing, onFocusDesk }:
       </div>
 
       {mpSeats ? (
-        <TeamPlanBoard view={view} seatRole={seatRole} standing={standing} />
+        <TeamPlanBoard view={view} seatRole={seatRole} standing={standing} infoCost={infoCost} />
       ) : (
         <>
           <div className="mb-1 mt-0.5 font-mono text-[0.58rem] uppercase tracking-wide text-inksoft">{called}/{DESK_ORDER.length} calls made</div>
@@ -81,13 +83,20 @@ export function RoundTable({ view, rationale, seatRole, standing, onFocusDesk }:
  * round's value, so the CEO's entry runs". What renders here IS what resolves at lock; the
  * form above is only this seat's draft until it is submitted.
  */
-function TeamPlanBoard({ view, seatRole, standing }: { view: GameView; seatRole?: string | null; standing?: FirmDecision | null }) {
+function TeamPlanBoard({ view, seatRole, standing, infoCost = 0 }: { view: GameView; seatRole?: string | null; standing?: FirmDecision | null; infoCost?: number }) {
   const plan = view.teamPlan;
   const seats = plan?.seats ?? [];
   const table = planTable(plan, standing);
   const composed = table.composed ?? plan?.composed ?? null;
   const me = seats.find((s) => s.me) ?? null;
   const cash = composed ? planCash(composed, view) : null;
+  // 11-06 (Devin): what the round will fund on the composed plan — shown beside the lever it changes.
+  const money = composed ? moneyOutcome(view, composed, infoCost) : null;
+  const fundNote = (f: keyof FirmDecision): string | null =>
+    f === "invest_cap" && money?.tank ? (money.tank.kept >= 0.5 ? `→ cash and credit cover ${fmt.money(money.tank.kept)}: +${fmt.int(money.tank.unitsKept)} units ${money.tank.when}, not +${fmt.int(money.tank.unitsAsked)}` : "→ dropped: cash and credit cover none of it")
+    : f === "debt_draw" && money?.loan ? (money.loan.lent >= 0.5 ? `→ the bank lends ${fmt.money(money.loan.lent)} of it` : "→ the bank lends none of it")
+    : f === "equity_raise" && money?.equity ? (money.equity.raised >= 0.5 ? `→ investors put in ${fmt.money(money.equity.raised)} of it` : "→ no investor buys in")
+    : null;
   const t = (f: keyof FirmDecision, v: unknown) => leverText(String(f), v, view);
   const who = (s: TeamPlanSeat) => (s.me ? "you" : `${s.name}${s.role ? ` · ${s.role.toUpperCase()}` : ""}`);
   const chairOf = (desk: TableDesk) => seats.find((s) => (s.desk ?? (s.role ? ROLE_DESK[s.role] : null)) === desk) ?? null;
@@ -150,6 +159,7 @@ function TeamPlanBoard({ view, seatRole, standing }: { view: GameView; seatRole?
                             {r.author ? `${r.authorChanged ? "✎ " : ""}${who(r.author)}` : "carried"}
                           </span>
                         </div>
+                        {fundNote(r.field) && <div className="text-[0.66rem] text-brick">{fundNote(r.field)}</div>}
                         {r.chairYielded && (
                           <div className="text-[0.66rem] italic text-inksoft">{r.chairYielded.me ? "You" : who(r.chairYielded)} left this at last round's value, so the CEO's entry runs.{r.chairYielded.me ? " To keep yours, change it (or press Keep mine in the commit panel) and submit again." : ""}</div>
                         )}
@@ -176,11 +186,12 @@ function TeamPlanBoard({ view, seatRole, standing }: { view: GameView; seatRole?
                 <span className="font-mono text-[0.56rem] font-bold uppercase tracking-wide text-inksoft">Cash check</span>
                 <span className="text-ink">committed ≈ {fmt.money(cash.out)}</span>
                 <span className="text-ink">financing +{fmt.money(cash.inflow)}</span>
+                {cash.reserve >= 0.5 && <span className="text-ink">running costs −{fmt.money(cash.reserve)}</span>}
                 <span className="font-semibold" style={{ color: cash.after < 0 ? "var(--color-brick)" : "var(--color-hop)" }}>
                   {cash.after < 0 ? `short ${fmt.money(-cash.after)}` : `≈ ${fmt.money(cash.after)} left`}
                 </span>
               </div>
-              {cash.after < 0 && <div className="mt-0.5 text-[0.66rem] text-brick">The plan spends more than cash + financing covers — trim a desk or have the CFO draw funds. (Estimate: payroll &amp; production costs not included.)</div>}
+              {cash.after < 0 && <div className="mt-0.5 text-[0.66rem] text-brick">The plan spends more than cash + the financing the bank and investors will actually grant{cash.reserve >= 0.5 ? ", once the quarter's running costs are set aside" : ""} — trim a desk or have the CFO draw funds.{view.finance?.affordability_guard ? (money && money.cuts.length ? ` Left as is, the round cuts: ${money.cuts.map((x) => (x.kept >= 0.5 ? `${x.label} ${fmt.money(x.asked)} → ${fmt.money(x.kept)}` : `${x.label} (${fmt.money(x.asked)}) dropped`)).join("; ")}.` : " Left as is, the round trims it to fit (dividend → repayment → tanks → builds → hires) and says so.") : ""} {cash.reserve >= 0.5 ? "(Brewing is paid from sales.)" : "(Estimate: payroll & production costs not included.)"}</div>}
             </div>
           )}
         </div>

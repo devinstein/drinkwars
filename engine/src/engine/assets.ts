@@ -68,7 +68,13 @@ export function resolveAssets(world: WorldState, decisions: Map<FirmId, FirmDeci
         const cfg = v.assets.find((x) => x.id === id);
         const owned = f.vertical_assets.some((x) => x.id === id);
         if (!cfg || owned || f.vertical_assets.length >= v.max_assets) continue;
-        if (f.cash < cfg.cost) continue; // can't finance the purchase this round
+        // Can't finance the purchase this round. DW-083 item 7: say so (DW-071's rule for hires —
+        // a silent drop reads as a broken game). With the affordability guard on, the round's
+        // orders were already sized against cash + financing, so this per-item check stands down.
+        if (!c.finance.affordability_guard && f.cash < cfg.cost) {
+          out.events.push(`PURCHASE FAILED: ${f.id} cannot fund the ${cfg.label.toLowerCase()} ($${Math.round(cfg.cost).toLocaleString("en-US")}; it began the round with $${Math.round(Math.max(0, f.cash)).toLocaleString("en-US")})`);
+          continue;
+        }
         f.vertical_assets.push({ id, acquired_round: round });
         out.capexByFirm.set(f.id, (out.capexByFirm.get(f.id) ?? 0) + cfg.cost);
         out.events.push(`ACQUISITION: ${f.id} buys ${cfg.label.toLowerCase()} (online in ${cfg.integration_lag} rounds)`);
@@ -95,7 +101,7 @@ export function resolveAssets(world: WorldState, decisions: Map<FirmId, FirmDeci
         const cfg = lab.roles.find((r) => r.id === roleId);
         const already = f.key_hires.some((h) => h.role === roleId);
         if (!cfg || already) continue;
-        if (f.cash < cfg.signing_bonus + cfg.salary) {
+        if (!c.finance.affordability_guard && f.cash < cfg.signing_bonus + cfg.salary) {
           // DW-071: a hire that doesn't happen says so — silent drops read as a broken game.
           out.events.push(`HIRE FAILED: ${f.id} cannot cover a ${cfg.label.toLowerCase()}'s $${Math.round(cfg.signing_bonus + cfg.salary).toLocaleString("en-US")} signing bonus + first salary`);
           continue;

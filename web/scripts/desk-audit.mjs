@@ -180,7 +180,12 @@ ok(cap > 0 && /only that much will be raised/.test(capWarn), "CFO sees 'Investor
 ok(+cmoPriceShown === E1.price && (empOn ? /✓\s*$/.test(hireBtn) : /Hiring ✓/.test(hireBtn)), `form edits took (price field, Hire toggles to '${empOn ? "✓" : "Hiring ✓"}')`, `price=${cmoPriceShown} hire="${hireBtn}"`);
 const dlg1 = {};
 for (const r of ["cmo", "coo", "chro", "cfo"]) dlg1[r] = await submit(P[r], r);
-ok(Object.values(dlg1).every((d) => d.length === 0), "specialists editing only their own desk get NO pre-submit confirm", JSON.stringify(dlg1).slice(0, 300));
+// 11-06 (Devin): the check now also opens when the round won't fund the plan as entered (the guard's cuts, the
+// lenders' caps). Those money lines are expected here — the CFO asks past the investors' cap on purpose — so this
+// asserts no TEAMMATE-CONFLICT confirm, and that the over-ask is disclosed at submit.
+const moneyOnly = (t) => !/will be used|decides|suggestion|cancelled|Keep mine|replaces theirs|'s desk/.test(t);
+ok(Object.values(dlg1).every((d) => d.every(moneyOnly)), "specialists editing only their own desk get NO teammate-conflict confirm", JSON.stringify(dlg1).slice(0, 300));
+ok(dlg1.cfo.some((t) => /Equity: investors put in \$[\d,]+ of the \$[\d,]+ asked/.test(t)), "the CFO's ask past the investors' cap is disclosed at submit (the money check)", JSON.stringify(dlg1.cfo).slice(0, 200));
 await sleep(1200);
 dlg1.ceo = await submit(P.ceo, "ceo"); // untouched, stale form — the classic clobber
 logs.push(`[info] CEO r1 dialogs: ${JSON.stringify(dlg1.ceo)}`);
@@ -230,7 +235,7 @@ const ask2 = Math.ceil((cap2 + 40000) / 5000) * 5000;
 await typeInto(P.cfo, "debt_draw", E2.debt_draw); await typeInto(P.cfo, "equity_raise", ask2); await setRange(P.cfo, "invest_T_inv", E2.invest_T_inv);
 for (const r of ["cmo", "coo", "chro", "cfo"]) dlg1[r + "2"] = await submit(P[r], r);
 const d2 = ["cmo2", "coo2", "chro2", "cfo2"].flatMap((k) => dlg1[k]);
-ok(d2.every((l) => !/Theirs will be used/.test(l) && /Yours will be used — it's your desk/.test(l)), "r2: any pre-submit confirm tells the owner their value wins over the CEO's stale default", `${d2.length} confirm(s)`);
+ok(d2.filter((l) => !moneyOnly(l)).every((l) => !/Theirs will be used/.test(l) && /Yours will be used — it's your desk/.test(l)), "r2: any teammate-conflict confirm tells the owner their value wins over the CEO's stale default", `${d2.length} confirm(s), ${d2.filter((l) => !moneyOnly(l)).length} conflict`);
 const c2 = (await view(sess.ceo.token)).teamPlan?.composed ?? {};
 expectPlan(c2, E2, "ops_manager", ask2, "r2 (CEO first)");
 const debt1 = row1?.debt ?? 0;

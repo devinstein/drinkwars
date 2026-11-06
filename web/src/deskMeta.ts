@@ -13,7 +13,10 @@
  * `seatRole` drives the "you hold this seat" framing in the UI, not the persona selection.
  */
 import type { GameView, FirmSnapshot } from "./game/controller.js";
+import { creditLimits, creditReason, equityCapacity, overdraftLimit } from "drinkwars-engine";
 import { fmt, SEG_TAG } from "./labels.js";
+import { listOf, readSellOuts, roomNote, tankFit, type SellOutRead } from "./lib/sizing.js";
+import { tankOutlook } from "./lib/tanks.js";
 
 export type CockpitDesk = "all" | "commercial" | "operations" | "people" | "finance" | "strategy";
 export type Tone = "good" | "watch" | "risk" | "neutral";
@@ -112,6 +115,25 @@ function volumes(view: GameView): { sold: number; desired: number } {
   return { sold, desired };
 }
 
+/** DW-084: what the round can be funded with — cash, then the bank's, the investors' and the overdraft's
+ *  limits from the engine's own functions on the state the round will price. Sprint 2's teams planned past
+ *  all three without ever seeing them. Shown to the CFO and to the founder/CEO desk. (DW-083: the old
+ *  "Funding the round" card's `cash < 300` was a $k-era threshold that never fired once money became dollars.) */
+function cashToWorkWith(view: GameView): Signal {
+  const fin = view.finance;
+  const lim = fin ? creditLimits(view.own, { finance: fin }) : null;
+  const inv = fin ? equityCapacity(view.own, { finance: fin }) : Infinity;
+  const od = fin ? overdraftLimit(view.own, { finance: fin }) : 0;
+  const equity = view.own.paid_in_capital + view.own.retained_earnings;
+  const more = [
+    lim == null ? null : lim.capacity >= 0.5 ? `the bank lends up to ${fmt.money(lim.capacity)}` : `the bank won't lend (${creditReason(lim, equity, { finance: fin! }, "your")})`,
+    !Number.isFinite(inv) ? null : inv >= 0.5 ? `investors put in up to ${fmt.money(inv)}` : "investors won't put money in (the firm's valuation is gone)",
+    od > 0 ? `an emergency overdraft covers up to ${fmt.money(od)} at the penalty rate — past that the firm closes` : null,
+  ].filter(Boolean);
+  return { label: "Cash to work with", value: fmt.money(view.own.cash), tone: view.own.cash < (view.scoring?.cash_safety_threshold ?? 120_000) ? "risk" : "neutral",
+    read: `${more.length ? `Beyond the cash: ${more.join("; ")}. ` : ""}Capex (COO), hiring (People) and marketing (CMO) all draw on it — set the envelope before they overspend it.` };
+}
+
 // ── the mandate ("your job this round") ────────────────────────────────────
 export function cockpitSignals(desk: CockpitDesk, view: GameView): Signal[] {
   const r = view.ownResult;
@@ -127,11 +149,27 @@ export function cockpitSignals(desk: CockpitDesk, view: GameView): Signal[] {
       const levMed = fieldMed(view, (f) => f.leverage);
       out.push({ label: "Leverage vs field", value: `${leverage.toFixed(2)}×`, tone: vsField(view, leverage, (f) => f.leverage, false, 0.2),
         read: !fieldSeen(view) ? HIDDEN : `Field runs ≈${levMed.toFixed(2)}×. ${leverage > levMed * 1.2 ? "You're the stretched one at the table — borrowing gets pricier." : "You have borrowing headroom the field doesn't."}` });
-      if (credit_rationed) out.push({ label: "Credit", value: "Rationed", tone: "risk", read: "Lenders are capping new debt. This round leans on cash or equity, not more borrowing." });
+      if (credit_rationed) {
+        // The engine sets this flag for a covenant breach (the bank REPRICES bank debt at the penalty spread;
+        // the leverage cap itself doesn't move) and for a draw it cut (debt may not pass max_leverage × equity).
+        // The old read, "lenders are capping new debt", sat beside "the bank lends up to $1.8M" on the card
+        // below it. Say which it is, from the engine's own numbers.
+        const fin = view.finance;
+        const limNow = fin ? creditLimits(view.own, { finance: fin }) : null;
+        const capNow = limNow ? limNow.capacity : null;
+        const equity = view.own.paid_in_capital + view.own.retained_earnings;
+        const why = limNow && fin ? creditReason(limNow, equity, { finance: fin }, "your") : "within the bank's limits";
+        const thr = fin?.coverage_threshold ?? 1.5;
+        const lends = capNow != null ? `up to ${fmt.money(capNow)}` : "up to its limits";
+        if (capNow != null && capNow < 1) out.push({ label: "Credit", value: "Refused", tone: "risk",
+          read: `The bank won't lend this quarter: ${why}. This round leans on cash or equity.` });
+        else if (coverage < thr) out.push({ label: "Credit", value: "Penalty grid", tone: "risk",
+          read: `Coverage is under the ${thr}× covenant, so the bank reprices your debt at the penalty spread. It still lends ${lends} (${why}), but every dollar costs more. De-lever or earn back the cover.` });
+        else out.push({ label: "Credit", value: "Capped", tone: "risk",
+          read: `Last quarter the bank lent less than you asked (${why}). This quarter it lends ${lends}.` });
+      }
     }
-    // cross-desk handoff: what the round is asking the balance sheet to fund
-    out.push({ label: "Funding the round", value: fmt.money(view.own.cash), tone: view.own.cash < 300 ? "risk" : "neutral",
-      read: "Capex (COO), hiring (People), and marketing (CMO) all draw here. Set the envelope before they overspend it." });
+    out.push(cashToWorkWith(view)); // cross-desk handoff: what the round can be funded with (DW-084)
   }
 
   if (desk === "operations") {
@@ -139,10 +177,45 @@ export function cockpitSignals(desk: CockpitDesk, view: GameView): Signal[] {
     if (r && view.own.cap > 0) {
       const util = utilization(view, sold);
       const utilTone: Tone = util >= 0.95 ? "watch" : util >= 0.7 ? "good" : "risk";
+      // 11-06 playtest: "near the ceiling — a build needs CFO cash" sat above "Tanks ahead of demand 45%" — last
+      // quarter's ceiling, with a tank order landing now that already covers that demand.
+      const outlook = view.capacity ? tankOutlook(view.own, view.capacity, 0) : null;
+      const coveredNow = !!(outlook && view.sizing && outlook.landNow >= 0.5 && tankFit(view.sizing, outlook.capThis).covers);
       out.push({ label: "Capacity utilization", value: fmt.pct(util), tone: utilTone,
-        read: util >= 0.95 ? "You're near the ceiling — demand you can't serve is lost margin. A build needs CFO cash and lands next round." : util < 0.7 ? "Idle tanks you're still paying upkeep on. Grow demand (CMO) or trim/mothball." : "Healthy headroom without paying for idle capacity." });
-      const gap = desired - sold;
-      if (gap > sold * 0.05) out.push({ label: "Unserved demand", value: fmt.int(gap), tone: "risk", read: "Buyers wanted more than you could make. This is the cost of under-building — flag capex to the CFO." });
+        read: util >= 0.95 && coveredNow ? `You ran at the ceiling last quarter, but the ${fmt.int(outlook!.landNow)} units you ordered land this quarter and cover that demand — no new build is needed for it.` :
+          util >= 0.95 ? "You're near the ceiling — demand you can't serve is lost margin. A build needs CFO cash and lands next round." : util < 0.7 ? "Idle tanks you're still paying upkeep on. Grow demand (CMO) or trim/mothball." : "Healthy headroom without paying for idle capacity." });
+      // DW-083/084: only shoppers who picked YOU, in markets you SELL in, and found you SOLD OUT argue for
+      // tanks — and only when it's material. The card used to fire on desired − sold alone: 31 of 38
+      // firm-rounds in Sprint 2, on shoppers in regions a firm had never entered and on firms with half
+      // their tanks idle, and it told every one of them to build. The sizing (TAM/SAM/SOM) keeps the count
+      // inside the firm's own markets; without it (an older server) only a single-market game can be read.
+      const sz = view.sizing;
+      const so = sz ? readSellOuts(sz) : null;
+      const turned = so ? so.turned : view.modules?.geography?.enabled ? 0 : Math.max(0, desired - sold);
+      const floor = Math.max(0.1 * sold, 1_000);
+      // Tanks already on order land before any new ones could: say so, or the card asks for tanks a firm just bought.
+      const landing = view.capacity ? tankOutlook(view.own, view.capacity, 0).landNow : 0;
+      const capacityCase = (n: number, where: string[], shifted = 0) => out.push({ label: "Turned away", value: fmt.int(n), tone: "risk",
+        read: `${fmt.int(n)} shoppers picked you first${where.length ? ` in ${listOf(where)}` : ""} and found you sold out${shifted >= 0.5 ? ` — even after pointing the ${fmt.int(shifted)} units you had spare elsewhere at them` : ""}. Two fixes: a higher price (a brewery that sells out is leaving margin behind) or more tanks — they arrive next quarter, and the CFO has to fund them.${landing >= 0.5 ? ` The ${fmt.int(landing)} units you ordered earlier come online this quarter first.` : ""}` });
+      // The sizing carries the room the firm had (idle tanks + sales to rivals' overflow), so the read doesn't
+      // need the utilization gate: a firm that sold out in Lagers with half its tanks idle in Craft has an
+      // allocation problem whatever its utilization says — and the old gate said nothing to it at 52%.
+      const wrongPlace = (x: SellOutRead) => out.push({ label: "Capacity in the wrong place", value: fmt.int(x.turned), tone: "watch",
+        read: `You turned away ${fmt.int(x.turned)} shoppers who picked you${x.short.length ? ` in ${listOf(x.short)}` : ""}, while ${x.spare.length ? `${listOf(x.spare)} had room: ` : ""}${roomNote(x, fmt.int)}. Shift capacity toward ${x.short.length ? listOf(x.short) : "where you sold out"} before buying tanks${x.net >= 0.5 ? ` — that closes about ${fmt.int(Math.min(x.shiftable, x.turned))} of it` : ""}.` });
+      // 11-06 playtest: last quarter's demand against THIS quarter's tanks (earlier orders land first). A firm whose
+      // landing order already covers its sell-out isn't asked for more; one brewing on far more than it sells hears it
+      // before the next order, not after its utilization halves.
+      const capThis = view.capacity ? tankOutlook(view.own, view.capacity, 0).capThis : view.own.cap;
+      const fit = sz ? tankFit(sz, capThis) : null;
+      if (turned >= floor) {
+        if (!so) { if (util >= 0.95) capacityCase(turned, []); } // an older server: no sizing, single-market games only (see `turned`)
+        else if (so.shiftable >= 0.5 * turned) wrongPlace(so); // moving capacity closes at least half: an allocation problem first
+        else if (fit?.covers && landing >= 0.5) out.push({ label: "Turned away", value: fmt.int(so.turned), tone: "watch",
+          read: `${fmt.int(so.turned)} shoppers picked you first${so.short.length ? ` in ${listOf(so.short)}` : ""} and found you sold out. The ${fmt.int(landing)} units you ordered earlier come online this quarter first: you brew ${fmt.int(capThis)} against the ${fmt.int(fit.demand)} drinks shoppers wanted from you, so that demand is covered without more tanks. A higher price is the other lever — a brewery that sells out leaves margin behind.` });
+        else capacityCase(so.net, so.short, Math.min(so.shiftable, turned)); // the rest is a capacity (or price) problem
+      }
+      if (fit?.ample) out.push({ label: "Tanks ahead of demand", value: fmt.pct(fit.util), tone: "risk",
+        read: `This quarter you brew with ${fmt.int(capThis)} units; if last quarter's demand repeats (${fmt.int(fit.demand)} drinks), they run at ${fmt.pct(fit.util)}. Unless demand grows — a new market, better quality or brand, a lower price — trim the tank order before adding more: an idle unit still costs ${fmt.price(view.capacity?.fixed_cost_per_unit ?? 0)} a quarter.` });
     }
     const ucMed = fieldMed(view, (f) => f.unitCost);
     out.push({ label: "Unit cost vs field", value: fmt.price(view.own.unit_cost), tone: vsField(view, view.own.unit_cost, (f) => f.unitCost, false, 0.08),
@@ -212,6 +285,7 @@ export function cockpitSignals(desk: CockpitDesk, view: GameView): Signal[] {
         read: "The four legs — financial, market, intangible, stakeholder — are your four officers. A lopsided firm loses to a balanced one. Allocate to the gap." });
     }
     out.push({ label: "This round", value: `R${round}/${view.nRounds}`, tone: "neutral", read: "Read each officer's mandate below, then allocate: whose ask earns the capital this round?" });
+    out.push(cashToWorkWith(view)); // DW-084: whoever commits the plan sees what it can be funded with
   }
 
   // MOD-B05 role intel — a briefing line, when the module is on
@@ -239,7 +313,7 @@ export function cockpitMetrics(desk: CockpitDesk, view: GameView): Metric[] {
     const { sold, desired } = volumes(view);
     const util = utilization(view, sold);
     if (r) out.push({ label: "Utilization", value: fmt.pct(util), tone: util >= 0.95 ? "watch" : util >= 0.7 ? "good" : "risk", hint: "Units sold ÷ capacity. Near 100% = lost sales; low = idle upkeep." });
-    out.push({ label: "Unit cost", value: fmt.price(view.own.unit_cost), field: fieldOf(view, () => fmt.price(fieldMed(view, (f) => f.unitCost))), tone: vsField(view, view.own.unit_cost, (f) => f.unitCost, false, 0.08), hint: "All-in cost per drink. Learning + process + scale drive it down." });
+    out.push({ label: "Unit cost", value: view.own.unit_cost > 0 ? fmt.price(view.own.unit_cost) : view.unitCostEst > 0 ? `≈ ${fmt.price(view.unitCostEst)}` : "—", field: fieldOf(view, () => fmt.price(fieldMed(view, (f) => f.unitCost))), tone: vsField(view, view.own.unit_cost, (f) => f.unitCost, false, 0.08), hint: "All-in cost per drink. Learning + process + scale drive it down." });
     // learning and process are MULTIPLIERS on c_base (1.00 = no saving yet), so adding them and
     // printing the sum as a negative was arithmetic nonsense — a firm with no experience and no
     // process investment read "−2.00". The honest figure is the $/drink the two take out of the
@@ -258,7 +332,7 @@ export function cockpitMetrics(desk: CockpitDesk, view: GameView): Metric[] {
           : "Nothing yet. Experience accumulates with every drink brewed; process investment compounds on top of it.",
       });
     }
-    out.push({ label: "Capacity", value: fmt.int(view.own.cap), field: fieldOf(view, () => fmt.int(fieldMed(view, (f) => f.cap))), tone: "neutral", hint: "Your ceiling on units this round. Builds take a round to come online." });
+    out.push({ label: "Capacity", value: fmt.int(view.own.cap), field: fieldOf(view, () => fmt.int(fieldMed(view, (f) => f.cap))), tone: "neutral", hint: `Tanks you own. ${view.capacity ? `This round brews on ${fmt.int(tankOutlook(view.own, view.capacity, 0).capThis)} — after wear-out and anything landing now; ` : ""}new orders come online a round later.` });
     if (view.inventoryEnabled && r?.inventory) out.push({ label: "Inventory turns", value: `${r.inventory.turnover.toFixed(1)}×`, tone: r.inventory.turnover < 1 ? "watch" : "good", hint: "Higher = less cash frozen in stock and less spoilage." });
   }
 

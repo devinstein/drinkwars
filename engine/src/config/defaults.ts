@@ -122,6 +122,12 @@ export const defaultConfig: Config = {
     // rationing — overbuilding worked as cheap insurance (see the calibrate probe).
     unmet_demand_lost_fraction: 0.65,
     cross_segment_substitution: 0.2,
+    // DW-083 item 5 / DW-084 (v3): a firm with nothing to sell in a market isn't in its choice set.
+    phantom_competitors: false,
+    // DW-084 (v3): quality and brand count in full to 20 (2× the starting stock), logarithmically above.
+    // Sprint 2: a funded leader's linear lead became 91–94% share and six of seven firms closed; the
+    // harness had flagged it (differentiator wins 92–96% of seeds on the Sprint 2 module set).
+    stock_knee: 20,
   },
 
   costs: {
@@ -245,6 +251,21 @@ export const defaultConfig: Config = {
     regulatory_burden_base: 16_000, // $/qtr compliance drag, relieved by T_gov
     regulatory_burden_halfsat: 10,
     dividend_max_fraction: 0.5,
+    // DW-083 item 3 (Sprint 2): a repayment may not take closing cash below the covenant floor —
+    // one firm repaid its last $20k on cash that couldn't cover it and closed at −$377.
+    repay_cash_cap: true,
+    // DW-083 item 2 (v3): one sources-and-uses pass after financing — what the round can't pay for is
+    // trimmed (dividend → repayment → tanks → builds → suppliers → hires) instead of overdrawing the firm.
+    affordability_guard: { mode: "scale", reserve_running_costs: true },
+    // v3 audit: the bank's cash-flow test — bank debt ≤ 3× annual EBITDA (trailing four quarters). Banks size
+    // small-business loans on a debt-service coverage ratio of about 1.25×; on a five-year amortizing equipment
+    // loan at these rates that is roughly 3× EBITDA. Real lenders want a track record before they lend on cash
+    // flow; a start-up borrows on equity and collateral. Two quarters of books (Devin's call, 2026-11-06) is the
+    // compressed version: rounds 1–2 run on the 3× equity test alone, the cash-flow test joins from round 3.
+    cash_flow_lending: { ebitda_multiple: 3, trailing_rounds: 4, min_history_rounds: 2 },
+    // DW-083 item 4(b) (v3): a quarter that ends below $0 borrows the gap as an emergency overdraft up to
+    // 25% of beginning assets, at the penalty rate; past that the firm closes. Was: cash ≤ 0 closes at once.
+    overdraft: { max_fraction_of_assets: 0.25 },
     solvency_runway_rounds: 5, // DW-051: 3→5 so the M&A window (min_distress_rounds 3) opens before the covenant closes
     valuation: {
       multiple: 12, // ≈3× annualized quarterly earnings — distressed craft-M&A comps

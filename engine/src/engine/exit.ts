@@ -82,9 +82,12 @@ export function processExits(input: ExitInputs): { events: string[] } {
     const belowHealth = f.cash < cashSafety || coverage < 1;
     f.rounds_below_health = belowHealth ? f.rounds_below_health + 1 : 0;
 
-    // Forced exit: insolvency or sustained covenant breach.
+    // Forced exit: insolvency or sustained covenant breach. DW-083 item 4(b): with the overdraft on,
+    // a round the emergency line covered closes at exactly 0 cash — the firm is below the line, not
+    // insolvent; only cash still negative (the overdraft limit ran out) closes it here.
     const covenantBreach = f.rounds_below_health >= c.finance.solvency_runway_rounds && coverage < 1 && f.cash < cashSafety * 0.5;
-    if (f.cash <= 0 || covenantBreach) {
+    const insolvent = c.finance.overdraft ? f.cash < 0 : f.cash <= 0;
+    if (insolvent || covenantBreach) {
       f.status = "bankrupt";
       releaseHoldings(f); // liquidation: parcels return to the lease pool, staff leave
       events.push(`FORCED EXIT (bankruptcy): ${f.id} (cash $${fmNum(f.cash)}, coverage ${coverage.toFixed(2)})`);

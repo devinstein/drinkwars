@@ -12,6 +12,7 @@ import type { EventKind } from "./EventModal.js";
 import { parseEvents } from "./eventFeed.js";
 import { firmColor } from "../lib/teamColors.js";
 import { MARKET_META, fmt } from "../labels.js";
+import { tankUnitsOf } from "../lib/moneyCheck.js";
 
 const SECTIONS: { kind: EventKind; glyph: string; label: string; accent: string }[] = [
   { kind: "shock", glyph: "⚠", label: "Disruptions", accent: "var(--color-brick)" },
@@ -30,7 +31,7 @@ const roman = (n: number): string => {
 
 export function TapDispatch({ view, round }: { view: GameView; round: number }) {
   const youName = view.names[view.own.id] ?? "";
-  const events = useMemo(() => parseEvents(view.events, youName), [view.events, youName]);
+  const events = useMemo(() => parseEvents(view.events, youName, { tankUnits: tankUnitsOf(view) }), [view, youName]);
   const lead = events.find((e) => e.kind === "shock") ?? events.find((e) => e.kind === "market") ?? events[0] ?? null;
   const sections = useMemo(
     () => SECTIONS.map((s) => ({ ...s, items: events.filter((e) => e.kind === s.kind && e !== lead).sort((a, b) => Number(!!b.mine) - Number(!!a.mine)) })).filter((s) => s.items.length > 0),

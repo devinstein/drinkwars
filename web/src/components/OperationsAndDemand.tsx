@@ -5,6 +5,7 @@ import { Bar, Card, Eyebrow, Row } from "./ui.js";
 import { InfoDot } from "./InfoDot.js";
 import { WorldMap } from "./WorldMap.js";
 import { CapacityVsDemand } from "./Dashboards.js";
+import { MarketSizing } from "./MarketSizing.js";
 
 const PALETTE = {
   copper: "var(--color-copper)",
@@ -139,6 +140,9 @@ export function OperationsAndDemand({ result, view }: { result: FirmRoundResult;
           </div>
         </Card>
       )}
+
+      {/* DW-084: how big the market is, how much of it you can reach, how much you won — and which gap is which lever. */}
+      {view.sizing && <MarketSizing s={view.sizing} />}
 
       {/* Demand: where your sales came from */}
       <Card>

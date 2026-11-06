@@ -70,6 +70,7 @@ export interface RawView {
   names?: Record<string, string>; // firm_id → brewery name
   styles?: Record<string, { color: string | null; emblem: string | null }>; // DW-051 house colour/mark per firm
   markets?: GameView["markets"]; // MOD-B01 per-team city view (projected server-side)
+  sizing?: GameView["sizing"]; // DW-084 TAM / SAM / SOM (projected server-side)
   seats?: GameView["seats"]; // team firms: this firm's C-suite seats + submit status
   teamPlan?: TeamPlan; // team firms: each seat's slice + the composed decision (same-firm only)
   firms?: GameView["firms"]; // public per-firm snapshots (rivals redacted unless research bought)
@@ -314,9 +315,11 @@ export class StudentClient {
       scoring: this.config?.scoring,
       capacity: this.config?.capacity,
       finance: this.config?.finance,
+      stocks: this.config?.stocks,
       briefings: v.briefings ?? [],
       fx: v.fx ?? {},
       markets: v.markets ?? [], // MOD-B01 per-team city view (projected server-side)
+      sizing: v.sizing ?? null, // DW-084: absent on an older server ⇒ the card stays hidden
       seats: v.seats ?? [], // team firms: C-suite seats + submit status
       teamPlan: v.teamPlan ?? null, // team firms: the live plan review surface
       agreements: v.agreements ?? [],

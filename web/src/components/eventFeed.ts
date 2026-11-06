@@ -118,6 +118,45 @@ const RULES: Rule[] = [
     kind: "shock", title: "Hire fell through",
     body: (_r, m) => `${m[1]} couldn't cover a ${m[2]}'s ${m[3]} signing bonus and first salary, so the hire didn't happen.`,
   },
+  // DW-083: the bank's answer, the affordability guard, a held-back repayment, the overdraft and a
+  // purchase that couldn't be funded — all private to the firm they name (server/src/names.ts).
+  {
+    test: /^CREDIT REFUSED:\s*the bank lends\s+(.+?)\s+nothing of the\s+(\$[\d,]+)\s+it asked\s+—\s+(.+)$/i,
+    kind: "shock", title: "Loan refused",
+    body: (_r, m) => `The bank lent ${m[1]} nothing of the ${m[2]} asked for: ${m[3]}.`,
+  },
+  {
+    test: /^CREDIT:\s*the bank lends\s+(.+?)\s+only\s+(\$[\d,]+)\s+of the\s+(\$[\d,]+)\s+it asked\s+—\s+(.+)$/i,
+    kind: "info", title: "Loan cut",
+    body: (_r, m) => `The bank lent ${m[1]} only ${m[2]} of the ${m[3]} asked for: ${m[4]}.`,
+  },
+  {
+    test: /^REPAYMENT CUT:\s*(.+?)\s+repays\s+(nothing|\$[\d,]+)\s+of the\s+(\$[\d,]+)\s+it planned.*?(\$[\d,]+)\s+covenant floor/i,
+    kind: "info", title: "Repayment held back",
+    body: (_r, m) => m[2].toLowerCase() === "nothing"
+      ? `${m[1]} repaid none of the ${m[3]} planned: it would have taken cash under the ${m[4]} covenant floor. The debt stays owed.`
+      : `${m[1]} repaid ${m[2]} of the ${m[3]} planned. The rest stays owed, so cash stays at the ${m[4]} covenant floor.`,
+  },
+  {
+    test: /^BLOCKED:\s*(.+?)\s+cannot pay for its whole plan\s+—\s+(\$[\d,]+)\s+of spending against\s+(\$[\d,]+)\s+of cash and financing((?:\s+after\s+\$[\d,]+\s+set aside for running costs)?)(?:;\s*([^.]+))?\.\s*Cut:\s*(.+)$/i,
+    kind: "shock", title: "Orders cut",
+    body: (_r, m) => `${m[1]} couldn't pay for the whole plan: ${m[2]} of spending against ${m[3]} of cash and financing${m[4] ?? ""}${m[5] ? ` (${m[5]})` : ""}. Cut: ${m[6]}.`,
+  },
+  {
+    test: /^OVERDRAFT EXHAUSTED:\s*(.+?)\s+is\s+(\$[\d,]+)\s+short and the bank's emergency line stops at\s+(\$[\d,]+)/i,
+    kind: "shock", title: "Overdraft ran out",
+    body: (_r, m) => `${m[1]} was ${m[2]} short, and the bank's emergency line stops at ${m[3]}.`,
+  },
+  {
+    test: /^OVERDRAFT:\s*the bank covers\s+(.+?)'s\s+(\$[\d,]+)\s+shortfall/i,
+    kind: "shock", title: "Emergency overdraft",
+    body: (_r, m) => `The bank covered ${m[1]}'s ${m[2]} shortfall with an emergency overdraft. It is debt now, at the penalty rate.`,
+  },
+  {
+    test: /^PURCHASE FAILED:\s*(.+?)\s+cannot fund the\s+(.+?)\s+\((\$[\d,]+)/i,
+    kind: "shock", title: "Purchase fell through",
+    body: (_r, m) => `${m[1]} couldn't fund the ${m[2]} (${m[3]}), so it wasn't bought.`,
+  },
   {
     test: /^EQUITY MARKET CLOSED:\s*no investor will fund\s+(.+?)'s\s+(\$[\d,]+) raise/i,
     kind: "shock", title: "Equity raise refused",
@@ -360,7 +399,35 @@ const listOf = (xs: string[]): string => (xs.length <= 1 ? xs.join("") : `${xs.s
  * Two passes keep the page glanceable: routine hires and builds roll up into one line per
  * house, and any dispatches that still read identically collapse into one with a `count`.
  */
-export function parseEvents(events: string[], youName = ""): GameEvent[] {
+/** The notices server/src/names.ts sends only to the firm they name (DW-083). Not POACHED: its long form names
+ *  the rival too ("Bitter Root lured Lena R. away from …"), so an "its" there need not be the reader's. */
+const PRIVATE_NOTICE = /^(CREDIT REFUSED|CREDIT|REPAYMENT CUT|BLOCKED|OVERDRAFT EXHAUSTED|OVERDRAFT|PURCHASE FAILED|EQUITY MARKET CLOSED|EQUITY):/i;
+const escapeRe = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** The firm's name → "you"/"your", and the firm's own "its" → "your". Safe only on a private notice, where the
+ *  one firm named is the reader's and every "its" is the firm's ("losses have used up its equity"). */
+function toSecondPerson(body: string, youName: string): string {
+  const name = escapeRe(youName);
+  return body.replace(new RegExp(`${name}'s\\b`, "g"), "your").replace(new RegExp(name, "g"), "you").replace(/\bits\b/g, "your");
+}
+
+/** 11-06 playtest · the results page's news, split by whom it hit. The private notices (the guard's cuts, the
+ *  bank's answer, the overdraft, a failed purchase, a poached hire) are about this firm, not the market:
+ *  eventFeed types the bad ones "shock", and the market card printed its generic "A market disruption this
+ *  round" over them; "Loan cut" (info) never showed at all. */
+export const FIRM_NEWS = new Set(["Loan refused", "Loan cut", "Repayment held back", "Orders cut", "Overdraft ran out", "Emergency overdraft", "Purchase fell through", "Equity raise refused", "Equity raise trimmed", "Talent poached"]);
+export function roundNews(events: string[], youName = "", opts: FeedOpts = {}): { market: GameEvent[]; firm: GameEvent[] } {
+  const all = parseEvents(events, youName, opts);
+  return {
+    market: all.filter((e) => (e.kind === "shock" || e.kind === "market") && !FIRM_NEWS.has(e.title)),
+    firm: all.filter((e) => e.mine && FIRM_NEWS.has(e.title)),
+  };
+}
+
+/** `tankUnits`: dollars → units of tank capacity (the game's conversion), so a cut tank order says what it bought. */
+export interface FeedOpts { tankUnits?: (dollars: number) => number }
+const dollars = (x: string) => Number(x.replace(/[$,]/g, ""));
+
+export function parseEvents(events: string[], youName = "", opts: FeedOpts = {}): GameEvent[] {
   const out: GameEvent[] = [];
   const houses = new Map<string, { hired: string[]; built: string[]; at: number }>();
 
@@ -376,9 +443,16 @@ export function parseEvents(events: string[], youName = ""): GameEvent[] {
     const { kind, title, body } = classify(raw);
     const mine = mentionsName(raw, youName);
     // "Copper & Cask ran …" → "You ran …" when it's the player's own dispatch.
-    const text = mine && youName && body.startsWith(youName + " ")
+    const lead = mine && youName && body.startsWith(youName + " ")
       ? "You" + secondPerson(body.slice(youName.length))
       : body;
+    // 11-06 playtest: a private notice names only its own firm, so it can read wholly in the second person —
+    // "The bank lent you only $427,493", not "lent Alder Ale Works only" under a "you" chip.
+    const second = mine && youName && PRIVATE_NOTICE.test(raw) ? toSecondPerson(lead, youName) : lead;
+    // 11-06 (Devin): "only got x amount of additional capacity" — the cut order in units, not just dollars.
+    const text = title === "Orders cut" && opts.tankUnits
+      ? second.replace(/tank order (\$[\d,]+) → (\$[\d,]+)/, (all, a: string, b: string) => `${all} (${Math.round(opts.tankUnits!(dollars(b))).toLocaleString("en-US")} units of new capacity instead of ${Math.round(opts.tankUnits!(dollars(a))).toLocaleString("en-US")})`)
+      : second;
     const struck = kind === "shock" ? raw.match(/^SHOCK fired:.*\)\s+in\s+(.+?)\s*$/i)?.[1] : undefined;
     const region = struck ? marketName(struck) : undefined; // the map's city name
     out.push({ id: `${i}:${raw}`, kind, title, body: text, mine, ...(region ? { region } : {}) });

@@ -18,6 +18,7 @@ import { equityCapacity, firmValuation } from "../engine/finance.js";
 import { generateHiringMarket } from "../engine/employees.js";
 import { activeMarkets, marketDemandScale } from "../engine/geography.js";
 import { facilityCapacity } from "../engine/facilities.js";
+import { stockUtility } from "../engine/demand.js";
 
 export interface Lean {
   id: string;
@@ -94,7 +95,7 @@ export function decideAdaptive(lean: Lean, f: FirmState, world: WorldState, c: C
     for (const r of rivals) {
       const rUnit = r.unit_cost > 0 ? r.unit_cost : c.costs.c_base * 0.85;
       const rPrice = rUnit * 1.7;
-      const u = sc.alpha - sc.beta_p * rPrice + sc.beta_q * r.Q + sc.beta_b * r.B + sc.beta_fit * 0.5;
+      const u = sc.alpha - sc.beta_p * rPrice + sc.beta_q * stockUtility(r.Q, c) + sc.beta_b * stockUtility(r.B, c) + sc.beta_fit * 0.5; // DW-084: same stock shape as the logit
       rivalExpSum += Math.exp(u);
     }
     const outside = Math.exp(sc.U0);
@@ -102,7 +103,7 @@ export function decideAdaptive(lean: Lean, f: FirmState, world: WorldState, c: C
     let best: Plan = { seg: sw.id, price: unit * 1.7, share: 0, profit: -Infinity };
     for (const mk of grid) {
       const price = unit * mk;
-      const u = sc.alpha - sc.beta_p * price + sc.beta_q * f.Q + sc.beta_b * f.B + sc.beta_fit * 0.7;
+      const u = sc.alpha - sc.beta_p * price + sc.beta_q * stockUtility(f.Q, c) + sc.beta_b * stockUtility(f.B, c) + sc.beta_fit * 0.7;
       const share = Math.exp(u) / (Math.exp(u) + rivalExpSum + outside);
       const qest = Math.min(dOf(sw) * share, f.cap); // if I devoted full cap here
       const profit = qest * (price - unit);

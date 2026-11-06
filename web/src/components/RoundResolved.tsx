@@ -17,7 +17,8 @@ import type { GameView } from "../game/controller.js";
 import type { ScoredCall, SeatForecasts } from "drinkwars-server";
 import { ROLE_DESK } from "drinkwars-engine";
 import { SHOCK_META, fmt, marketName } from "../labels.js";
-import { parseEvents } from "./eventFeed.js";
+import { roundNews } from "./eventFeed.js";
+import { tankUnitsOf } from "../lib/moneyCheck.js";
 import type { GameEvent } from "./EventModal.js";
 import { VERDICT_COLOR, VERDICT_LABEL, recordText, settledMine } from "./Calls.js";
 
@@ -154,7 +155,7 @@ export function RoundResolved({ view, round, mp, seatRole, calls, onDismiss, onS
     { label: "Gross margin", value: pct1(marginOf(cur)), d: prev && marginOf(prev) != null && marginOf(cur) != null ? marginOf(cur)! - marginOf(prev)! : null, f: (x: number) => `${x.toFixed(1)} pts`, suffix: "" },
   ];
 
-  const events = parseEvents(view.events, youName).filter((e) => e.kind === "shock" || e.kind === "market");
+  const { market: events, firm: firmNews } = roundNews(view.events, youName, { tankUnits: tankUnitsOf(view) });
   const rows = deskRows(view, desk);
 
   const settled: ScoredCall[] = (calls?.calls ?? []).filter((c) => c.round === round && c.userId === calls?.me);
@@ -213,7 +214,7 @@ export function RoundResolved({ view, round, mp, seatRole, calls, onDismiss, onS
             </div>
             <div className="card grid gap-3 px-4 py-4 sm:px-5">
               <span className="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-inksoft">What hit the market</span>
-              {events.length === 0 && <span className="text-[1rem] text-inksoft">A quiet round. No shocks; results came from your team's choices and your rivals'.</span>}
+              {events.length === 0 && <span className="text-[1rem] text-inksoft">A quiet round. No shocks; results came from {view.seats.length > 1 ? "your team's choices" : "your choices"} and your rivals'.</span>}
               {events.map((e) => {
                 const key = shockKey(e);
                 const line = (e.region ? regionalLine(e.region, view.shocks.find((s) => s.typeId === key && marketName(s.region, s.regionLabel) === e.region)?.exposure) : null)
@@ -229,6 +230,20 @@ export function RoundResolved({ view, round, mp, seatRole, calls, onDismiss, onS
                 );
               })}
             </div>
+            {firmNews.length > 0 && (
+              <div data-testid="firm-news" className="card grid gap-3 px-4 py-4 sm:px-5">
+                <span className="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-inksoft">What hit your firm</span>
+                {firmNews.map((e) => (
+                  <div key={e.id} className="grid grid-cols-[8px_minmax(0,1fr)] gap-3.5">
+                    <span className="rounded-[4px]" style={{ background: e.kind === "shock" ? "var(--color-brick)" : "var(--color-gold)" }} />
+                    <div className="grid gap-0.5">
+                      <span className="display text-[1.15rem] font-semibold sm:text-[1.3rem]">{e.title}</span>
+                      <span className="text-[0.95rem] leading-snug sm:text-[1.05rem]">{e.body}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="card grid gap-2 px-4 py-4 sm:px-5">
               <span className="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-inksoft">Your desk's numbers · {DESK_TITLE[desk]}</span>
               {/* the two columns are named (they read as two unexplained numbers) */}

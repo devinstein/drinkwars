@@ -49,6 +49,14 @@ export interface Arena {
   locUtil?: (firmId: FirmId) => number;
 }
 
+/** Quality or brand stock as it enters utility: linear, or with `demand.stock_knee` set, linear up to
+ *  the knee and logarithmic above it (DW-084). One function for the logit, its attraction breakdown
+ *  and the bots' forecasts, so they can't disagree. Returns `x` itself when no knee applies. */
+export function stockUtility(x: number, c: Pick<Config, "demand">): number {
+  const k = c.demand.stock_knee;
+  return k != null && k > 0 && x > k ? k * (1 + Math.log(x / k)) : x;
+}
+
 interface Cell {
   firmId: FirmId;
   utility: number;
@@ -81,6 +89,11 @@ export function resolveArena(activeFirms: FirmState[], decisions: Map<FirmId, Fi
     allocFrac.set(f.id, frac);
   }
 
+  // DW-083 item 5: a firm with nothing to sell in this market isn't in its choice set. With
+  // phantoms on (absent ⇒ the Sprint 1–2 rule) every active firm sat in every regional logit, took
+  // first-choice share it had no supply for, and 65% of those shoppers were lost.
+  const phantoms = c.demand.phantom_competitors !== false;
+
   // Pass 1: utilities and per-segment best utility (for the substitution term).
   const cells = new Map<SegmentId, Cell[]>();
   const bestU = new Map<SegmentId, number>();
@@ -97,12 +110,16 @@ export function resolveArena(activeFirms: FirmState[], decisions: Map<FirmId, Fi
     for (const f of activeFirms) {
       const frac = allocFrac.get(f.id)?.get(seg.id) ?? 0;
       if (frac <= 0) continue;
+      if (!phantoms && !(arena.supplyOf(f.id) > 0)) continue;
       const d = decisions.get(f.id)!;
       const price = Math.max(0, d.price?.[seg.id] ?? 0);
       const brand = arena.brandMult * (f.B + mod.extraBrand(f.id, seg.id));
       const tPrice = -betaP * price;
-      const tQual = betaQ * f.Q;
-      const tBrand = betaB * brand;
+      const tQual = betaQ * stockUtility(f.Q, c);
+      const tBrand = betaB * stockUtility(brand, c);
+      // The breakdown's own-brand line takes the same shape, or the knee's cut would land in
+      // `agreement` and read as an alliance effect. Legacy keeps its exact expression (replay parity).
+      const tBrandOwn = c.demand.stock_knee ? betaB * stockUtility(arena.brandMult * f.B, c) : betaB * arena.brandMult * f.B;
       const tFit = sc.beta_fit * frac;
       const tLoc = arena.locUtil?.(f.id) ?? 0; // Phase 2: location/catchment attractiveness
       const u = alpha + tPrice + tQual + tBrand + tFit + tLoc;
@@ -114,7 +131,7 @@ export function resolveArena(activeFirms: FirmState[], decisions: Map<FirmId, Fi
         allocFrac: frac,
         price,
         capAlloc: arena.supplyOf(f.id) * frac,
-        attraction: { alpha, price: tPrice, quality: tQual, brand: betaB * arena.brandMult * f.B, fit: tFit, agreement: tBrand - betaB * arena.brandMult * f.B },
+        attraction: { alpha, price: tPrice, quality: tQual, brand: tBrandOwn, fit: tFit, agreement: tBrand - tBrandOwn },
       });
     }
     cells.set(seg.id, list);
@@ -193,6 +210,7 @@ export function resolveArena(activeFirms: FirmState[], decisions: Map<FirmId, Fi
         revenue: x.price * Math.max(0, sold),
         utility: x.utility,
         attraction: x.attraction,
+        cap_alloc: x.capAlloc, // DW-084: what this category could have sold here
       };
       perFirm.get(x.firmId)![seg.id] = result;
       total += result.q_sold;

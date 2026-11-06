@@ -22,7 +22,7 @@ export const CF_LINE_LABEL: Record<"operating" | "investing" | "financing" | "po
   operating: { net_income: "Net income", depreciation: "Add back depreciation", inventory_change: "Cash tied up in inventory" },
   investing: { tanks: "New tanks", facilities: "Facilities built", vertical_assets: "Suppliers & distributors bought", capex: "Capital spending", divestment: "Facilities sold" },
   financing: {
-    debt_draw: "New borrowing", debt_repay: "Debt repaid", equity: "Equity raised", dividends: "Dividends paid",
+    debt_draw: "New borrowing", debt_repay: "Debt repaid", overdraft: "Emergency overdraft", equity: "Equity raised", dividends: "Dividends paid",
     convertible_draw: "Convertible note", convertible_repaid: "Convertible note repaid", rbf_draw: "Revenue-based financing", rbf_repaid: "Revenue-based financing repaid",
   },
   // DW-076: cash that moved after this quarter's books closed (M&A settlement, exit / rebuild).

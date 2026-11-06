@@ -204,6 +204,97 @@ export function projectMarkets(
   });
 }
 
+// ───────────────────────── market sizing: TAM · SAM · SOM (DW-084) ─────────────────────────
+/** One open market in the last resolved quarter, from one firm's seat. Shoppers = drinks a quarter. */
+export interface SizingMarketRow {
+  id: string;
+  label: string;
+  youSell: boolean; // the firm had drinks routed here
+  pool: number; // shoppers here, every active category (this market's slice of the addressable demand)
+  poolYours: number; // …in the categories the firm stocked here (0 where it doesn't sell)
+  pickedAnyone: number; // of poolYours, those who picked some brewery first
+  pickedYou: number; // of poolYours, those who picked this firm first
+  sold: number; // what the firm sold here
+  turnedAway: number; // picked the firm here and found it sold out (Σ over categories of max(0, picked − sold))
+  caught: number; // rivals' turned-away shoppers the firm served here (Σ of max(0, sold − picked))
+  idle: number; // supply allotted here that brewed nothing (Σ of max(0, allotted − sold)) — spare capacity
+}
+/** TAM ⊇ SAM ⊇ SOM for one firm, and where each gap went — every number from the round's own results.
+ *  TAM − SAM: markets and categories the firm doesn't sell in (expansion). SAM − SOM: shoppers who
+ *  picked a rival or no brewery at all (price, quality, brand). SOM − sold: shoppers who picked the
+ *  firm and found it sold out — the only part that argues for more tanks (or a higher price). */
+export interface MarketSizingView {
+  round: number; // the quarter described (the last resolved one)
+  tam: number;
+  sam: number;
+  som: number;
+  rivals: number; // in the SAM, picked a rival first
+  sold: number; // sold inside the SAM
+  turnedAway: number; // Σ per market × category of max(0, picked you − sold)
+  caught: number; // Σ of max(0, sold − picked you): rivals' sold-out shoppers this firm served
+  idle: number; // Σ of max(0, allotted − sold): capacity that stood idle (0 on a pre-DW-084 result)
+  rows: SizingMarketRow[];
+  /** Per category, summed over the SAM's markets. Turned away in one category while tanks stood idle (or
+   *  served rivals' overflow) in another means the tanks were split wrong — an allocation problem, not a
+   *  capacity one: `idle + caught` is what moving capacity could point at the sold-out category. */
+  cats: { id: SegmentId; turnedAway: number; caught: number; idle: number }[];
+}
+
+/** TAM/SAM/SOM for `firmId` from the last resolved round. With geography off there is one market (home)
+ *  and the pool is the round's addressable demand; with it on, each open market's pool is its share of
+ *  that demand (`marketDemandScale` — shocks scale every market alike, so the split is exact). A market
+ *  "counts" for the SAM only where the firm had supply routed, so demand in a region it never entered
+ *  can't read as unserved demand (Sprint 2: the COO card told home-only firms to build for it). */
+export function projectMarketSizing(c: Config, firmId: FirmId, last: RoundResult | null | undefined, labelOf: (marketId: string) => string = (id) => id): MarketSizingView | null {
+  const own = last?.firm_results.find((r) => r.firm_id === firmId);
+  if (!last || !own) return null;
+  const segs = last.market.filter((m) => m.active);
+  const geo = c.modules?.geography?.enabled && own.markets ? activeMarkets(c, last.round) : [];
+  // A result from before DW-084 has no per-market first-choice demand: it can't be sized honestly.
+  if (geo.length && Object.values(own.markets ?? {}).some((mk) => Object.values(mk.bySeg ?? {}).some((x) => x.q_desired == null))) return null;
+  const markets = geo.length ? geo : [{ id: "home", label: "Home market" } as { id: string; label: string }];
+  const scaleOf = (id: string) => { const m = geo.find((x) => x.id === id); return m ? marketDemandScale(m, c, last.round) : 1; };
+  const scaleSum = markets.reduce((a, m) => a + scaleOf(m.id), 0) || 1;
+  // A firm's per-market, per-category cell (geography) or its single-market cell.
+  // Without geography the result zero-fills every category a firm didn't stock (utility 0, nothing
+  // wanted or sold); a real logit cell never has utility exactly 0. With it, bySeg holds real cells only.
+  type Cell = { q_desired?: number; q_sold: number; cap_alloc?: number };
+  const cellOf = (r: FirmRoundResult, mk: string, seg: SegmentId): Cell | undefined => {
+    if (geo.length) return r.markets?.[mk]?.bySeg?.[seg];
+    const x = r.segments[seg];
+    return x && (x.utility !== 0 || x.q_sold > 0 || x.q_desired > 0) ? x : undefined;
+  };
+  const cats = new Map<SegmentId, { id: SegmentId; turnedAway: number; caught: number; idle: number }>(segs.map((s) => [s.segment, { id: s.segment, turnedAway: 0, caught: 0, idle: 0 }]));
+  const rows: SizingMarketRow[] = markets.map((m) => {
+    const share = scaleOf(m.id) / scaleSum;
+    const youSell = geo.length ? ((own.markets?.[m.id]?.supplied ?? own.markets?.[m.id]?.q_sold ?? 0) > 0) : (own.effective_cap ?? own.state.cap) > 0 || Object.values(own.segments).some((s) => s.q_sold > 0);
+    let pool = 0, poolYours = 0, pickedYou = 0, sold = 0, pickedAnyone = 0, turnedAway = 0, caught = 0, idle = 0;
+    for (const s of segs) {
+      const here = s.D * share;
+      pool += here;
+      const mine = cellOf(own, m.id, s.segment);
+      if (!youSell || !mine) continue; // not stocked here
+      poolYours += here;
+      pickedYou += mine.q_desired ?? 0;
+      sold += mine.q_sold;
+      const gap = (mine.q_desired ?? mine.q_sold) - mine.q_sold;
+      const cat = cats.get(s.segment)!;
+      if (gap > 0) { turnedAway += gap; cat.turnedAway += gap; } else { caught -= gap; cat.caught -= gap; }
+      const spare = Math.max(0, (mine.cap_alloc ?? 0) - mine.q_sold); // allotted here, brewed nothing (0 on a pre-DW-084 result)
+      idle += spare; cat.idle += spare;
+      for (const r of last.firm_results) pickedAnyone += cellOf(r, m.id, s.segment)?.q_desired ?? 0;
+    }
+    return { id: m.id, label: geo.length ? labelOf(m.id) : m.label, youSell, pool, poolYours, pickedAnyone, pickedYou, sold, turnedAway, caught, idle };
+  });
+  const sum = (k: "pool" | "poolYours" | "pickedAnyone" | "pickedYou" | "sold" | "turnedAway" | "caught" | "idle") => rows.reduce((a, r) => a + r[k], 0);
+  return {
+    round: last.round,
+    tam: sum("pool"), sam: sum("poolYours"), som: sum("pickedYou"),
+    rivals: Math.max(0, sum("pickedAnyone") - sum("pickedYou")),
+    sold: sum("sold"), turnedAway: sum("turnedAway"), caught: sum("caught"), idle: sum("idle"), rows, cats: [...cats.values()],
+  };
+}
+
 // ───────────────────────── shocks the viewer may know about ─────────────────────────
 /** `region`/`regionLabel` are set for a REGIONAL shock (a drought strikes one market); `exposure`
  *  (0..1) is the viewing firm's share of production sited there — the same factor the resolver
