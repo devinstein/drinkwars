@@ -21,7 +21,7 @@ Drink Wars is a multi-firm strategy simulation built for an undergraduate **caps
 **Or locally** (single-player needs no backend, no accounts, no config):
 
 ```bash
-git clone https://github.com/sydus93/drinkwars.git
+git clone https://github.com/devinstein/drinkwars.git
 cd drinkwars
 npm install
 npm run dev --workspace web      # → http://localhost:5173
@@ -164,7 +164,7 @@ If you're considering using this in a course or study, I'd genuinely like to hea
 
 ## 💬 Feedback & contributing
 
-This is a solo academic project very much in progress, and feedback is the reason it's public. If you play it, teach with it, or read the model and have thoughts — **please open a [GitHub issue](https://github.com/sydus93/drinkwars/issues)** (bugs, balance observations, pedagogy ideas, or "this confused me"). PRs are welcome too, but an issue first is the best way to start a conversation.
+This is a solo academic project very much in progress, and feedback is the reason it's public. If you play it, teach with it, or read the model and have thoughts — **please open a [GitHub issue](https://github.com/devinstein/drinkwars/issues)** (bugs, balance observations, pedagogy ideas, or "this confused me"). PRs are welcome too, but an issue first is the best way to start a conversation.
 
 ---
 
@@ -172,7 +172,7 @@ This is a solo academic project very much in progress, and feedback is the reaso
 
 If you use Drink Wars in teaching or research, please cite it (see [`CITATION.cff`](CITATION.cff)):
 
-> Stein, D. (2026). *Drink Wars: A craft-beverage strategy simulation for teaching and strategy research* [Software]. https://github.com/sydus93/drinkwars
+> Stein, D. (2026). *Drink Wars: A craft-beverage strategy simulation for teaching and strategy research* [Software]. https://github.com/devinstein/drinkwars
 
 ---
 

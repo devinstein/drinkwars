@@ -6,7 +6,7 @@ authors:
   - family-names: Stein
     given-names: Devin
     affiliation: Colorado State University
-repository-code: "https://github.com/sydus93/drinkwars"
+repository-code: "https://github.com/devinstein/drinkwars"
 url: "https://devinstein.me/drinkwars/"
 abstract: >-
   Drink Wars is a turn-based, multi-firm strategy simulation built for an

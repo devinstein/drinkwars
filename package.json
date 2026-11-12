@@ -8,10 +8,10 @@
   "homepage": "https://devinstein.me/drinkwars/",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sydus93/drinkwars.git"
+    "url": "https://github.com/devinstein/drinkwars.git"
   },
   "bugs": {
-    "url": "https://github.com/sydus93/drinkwars/issues"
+    "url": "https://github.com/devinstein/drinkwars/issues"
   },
   "keywords": [
     "strategy-simulation",
