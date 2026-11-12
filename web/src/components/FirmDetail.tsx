@@ -2,6 +2,7 @@ import { compareStanding } from "drinkwars-engine";
 import { useEffect } from "react";
 import type { GameView, FirmSnapshot } from "../game/controller.js";
 import { SEG_LABEL, STOCK_LABEL, fmt } from "../labels.js";
+import { HEALTH, npsColor, npsText } from "./ResearchReports.js";
 import { Row, Tag } from "./ui.js";
 import { Avatar, SkillStars } from "./People.js";
 
@@ -70,6 +71,10 @@ export function FirmDetail({
   const empRoleLabel = (id: string) => view.modules?.employees?.roles.find((r) => r.id === id)?.label ?? id.replace(/_/g, " ");
   const canPoach = empOn && !firm.isYou && firm.status === "active" && firm.employees.length > 0;
   const ownOrBought = infoActive || firm.isYou; // your own fundamentals are never "locked" (DW-080)
+  // 11-07 research reports: a rival's figures are the survey's and the analyst's estimates (≈).
+  const est = !!firm.estimated && !firm.isYou;
+  const ap = est ? "≈" : "";
+  const nps = view.research?.survey.find((x) => x.firm_id === firm.firm_id)?.nps ?? null;
 
   const distressed = firm.distressRounds >= 1;
   const acquirable = maOn && maCfg && firm.distressRounds >= maCfg.min_distress_rounds && firm.status === "active";
@@ -113,26 +118,38 @@ export function FirmDetail({
             <Row label="Status" value={<Tag tone={firm.status === "active" ? "hop" : firm.status === "bankrupt" ? "brick" : "ink"}>{STATUS_LABEL[firm.status] ?? firm.status}</Tag>} />
             <Row label="Size" value={sizeBand(firm.cap, view.firms.map((f) => f.cap))} />
             <Row label="Sells in" value={firm.focus.length ? firm.focus.map((s) => SEG_LABEL[s] ?? s).join(" · ") : "—"} />
-            <Row label="Approx. market share" value={fmt.pct(firm.share)} />
+            <Row label="Market share · drinks sold" value={fmt.pct(firm.soldShare ?? firm.share)} />
             {distressed && <Row label="Health" value={<span className="text-brick">Showing financial strain ({firm.distressRounds} round{firm.distressRounds === 1 ? "" : "s"})</span>} />}
           </div>
 
+          {/* 11-07: shelf prices are public (information.public_prices) — on the dossier with or without research. */}
+          {view.publicPrices && !ownOrBought && Object.keys(firm.priceBySeg).length > 0 && (
+            <div className="mt-2"><Row label="Shelf prices · last round" value={<span className="tnum">{Object.entries(firm.priceBySeg).filter(([, p]) => p > 0).map(([seg, p]) => `${(SEG_LABEL[seg] ?? seg).split(" ")[0]} ${fmt.price(p)}`).join(" · ")}</span>} /></div>
+          )}
+
           {/* PRIVATE — research-gated */}
           <div className="mt-4 flex items-center gap-2">
-            <div className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-inksoft">Confidential fundamentals</div>
+            <div className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-inksoft">{est ? "Research estimates" : "Confidential fundamentals"}</div>
             {!ownOrBought && <Tag tone="ink">locked</Tag>}
           </div>
 
           {ownOrBought ? (
             <div className="mt-1 grid gap-1">
-              <Row label={STOCK_LABEL.Q} value={<span>{bar(firm.Q, fieldMaxQ, "var(--color-hop)")} <span className="tnum ml-1">{firm.Q.toFixed(0)}</span></span>} />
-              <Row label={STOCK_LABEL.B} value={<span>{bar(firm.B, fieldMaxB)} <span className="tnum ml-1">{firm.B.toFixed(0)}</span></span>} />
+              <Row label={STOCK_LABEL.Q} value={<span>{bar(firm.Q, fieldMaxQ, "var(--color-hop)")} <span className="tnum ml-1">{ap}{firm.Q.toFixed(0)}</span></span>} />
+              <Row label={STOCK_LABEL.B} value={<span>{bar(firm.B, fieldMaxB)} <span className="tnum ml-1">{ap}{firm.B.toFixed(0)}</span></span>} />
               <Row label="Avg price" value={avgPrice ? fmt.price(avgPrice) : "—"} />
-              <Row label="Unit cost" value={firm.unitCost ? fmt.price(firm.unitCost) : "—"} />
-              <Row label="Capacity" value={`${fmt.int(firm.cap)} drinks/rd`} />
-              <Row label="Last net income" value={<span className={firm.netIncome < 0 ? "text-brick" : "text-hop"}>{fmt.signed(firm.netIncome)}</span>} />
-              <Row label="Leverage" value={<span className={firm.leverage > 1.5 ? "text-brick" : ""}>{firm.leverage.toFixed(2)}</span>} />
-              <Row label="Cash · debt" value={`${fmt.money(firm.cash)} · ${fmt.money(firm.debt)}`} />
+              <Row label="Unit cost" value={firm.unitCost ? `${ap}${fmt.price(firm.unitCost)}` : "—"} />
+              <Row label="Capacity" value={`${ap}${fmt.int(firm.cap)} drinks/rd`} />
+              {/* 11-07: with the research reports a rival's books are never on sale — the analyst's health band and the
+                  survey's NPS-style score stand in for net income, cash and debt. */}
+              {est ? (
+                <>
+                  {firm.health && <Row label="Financial health" value={<span className="font-mono text-[0.66rem] font-bold uppercase" style={{ color: HEALTH[firm.health].c }}>{HEALTH[firm.health].label}</span>} />}
+                  {nps != null && <Row label="NPS-style score" value={<b className="tnum" style={{ color: npsColor(nps) }}>{npsText(nps)}</b>} />}
+                </>
+              ) : <Row label="Last net income" value={<span className={firm.netIncome < 0 ? "text-brick" : "text-hop"}>{fmt.signed(firm.netIncome)}</span>} />}
+              <Row label="Leverage" value={<span className={firm.leverage > 1.5 ? "text-brick" : ""}>{ap}{firm.leverage.toFixed(2)}</span>} />
+              {!est && <Row label="Cash · debt" value={`${fmt.money(firm.cash)} · ${fmt.money(firm.debt)}`} />}
               {labOn && <Row label="Key people" value={firm.keyHires.length ? firm.keyHires.map(roleLabel).join(" · ") : "none on staff"} />}
               {vertOn && <Row label="Vertical assets" value={firm.verticalAssets.length ? firm.verticalAssets.map(assetLabel).join(" · ") : "none"} />}
 
@@ -184,7 +201,7 @@ export function FirmDetail({
                         <Avatar seed={`${firm.firm_id}_${e.id}`} name={e.name} size={24} />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5"><span className="truncate font-semibold text-ink">{e.name}</span><SkillStars n={e.skill} /></div>
-                          <div className="text-[0.62rem] text-inksoft">{empRoleLabel(e.role)} · {fmt.money(e.salary)}/rd · morale <span className={satTone}>{Math.round(e.satisfaction * 100)}%</span></div>
+                          <div className="text-[0.62rem] text-inksoft">{empRoleLabel(e.role)} · {ap}{fmt.money(e.salary)}/rd · morale <span className={satTone}>{ap}{Math.round(e.satisfaction * 100)}%</span></div>
                         </div>
                         {onPoach && (
                           <input

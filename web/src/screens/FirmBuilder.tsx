@@ -117,7 +117,7 @@ export function FirmBuilder({ onStart, busy }: { onStart: (c: FoundingChoices) =
             </div>
           ))}
           <div className="flex flex-col items-center gap-1.5">
-            <span className="grid h-10 w-10 place-items-center rounded-[11px]" style={{ background: color, border: "2px solid #fff4e0", boxShadow: `0 0 0 1px ${color}, 0 3px 7px rgba(40,25,8,.3)` }}><Emblem id={emblem} size={22} color="#fff" /></span>
+            <span className="grid h-10 w-10 place-items-center rounded-[11px]" style={{ background: color, border: "2px solid #fff", boxShadow: `0 0 0 1px ${color}, 0 3px 7px rgba(40,25,8,.3)` }}><Emblem id={emblem} size={22} color="#fff" /></span>
             <span className="font-mono text-[0.5rem] uppercase text-inksoft">badge</span>
           </div>
         </div>

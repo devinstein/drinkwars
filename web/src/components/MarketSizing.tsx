@@ -49,7 +49,7 @@ export function MarketSizing({ s }: { s: MarketSizingView }) {
         {room
           ? <div className="text-brick"><b className="tnum">{fmt.int(so.turned)}</b> picked you and found you sold out{so.short.length ? ` in ${listOf(so.short)}` : ""}, while {so.spare.length ? listOf(so.spare) : "elsewhere you"} had room for <b className="tnum">{fmt.int(so.shiftable)}</b> more ({roomNote(so, fmt.int)}). <span className="text-inksoft">{so.net >= 0.5 ? <>Moving capacity{toward} closes up to {fmt.int(Math.min(so.shiftable, so.turned))} of it; the other {fmt.int(so.net)} is what more tanks — or a higher price — would close.</> : <>Moving capacity{toward} closes it without a single new tank.</>}</span></div>
           : s.turnedAway >= 0.5
-            ? <div className="text-brick"><b className="tnum">{fmt.int(s.turnedAway)}</b> picked you and found you sold out{so.short.length ? ` in ${listOf(so.short)}` : ""}. <span className="text-inksoft">This is the only gap more tanks close — a higher price is the other answer.</span></div>
+            ? <div className="text-brick"><b className="tnum">{fmt.int(s.turnedAway)}</b> picked you and found you sold out{so.short.length ? ` in ${listOf(so.short)}` : ""}. <span className="text-inksoft">This is the only gap more tanks close. A higher price is the other lever.</span></div>
             : s.som > 0 && <div className="text-hop">Every shopper who picked you was served.</div>}
         {s.caught >= 0.5 && !room && <div className="text-inksoft">You also served {fmt.int(s.caught)} shoppers that rivals turned away. Those sales depend on rivals selling out, so they can vanish when rivals add tanks.</div>}
       </div>

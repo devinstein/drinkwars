@@ -15,6 +15,7 @@ import { FirmDetail } from "../components/FirmDetail.js";
 import { parseEvents } from "../components/eventFeed.js";
 import { Boardroom } from "../components/Boardroom.js";
 import { DeskCockpit } from "../components/DeskCockpit.js";
+import { Instruments } from "../components/Instruments.js";
 import { RoundTable } from "../components/RoundTable.js";
 import { StatementsAndRatios } from "../components/Statements.js";
 import { Sparkline } from "../components/Sparkline.js";
@@ -184,6 +185,8 @@ export function Play({
   const storedSlice = (): Partial<FirmDecision> | null => (mp ? view.teamPlan?.seats.find((s) => s.me)?.partial ?? (view as unknown as { draft?: FirmDecision | null }).draft : null) ?? null;
   const [cityActions, setCityActions] = useState<CityActions>(() => cityActionsFrom(view, storedSlice()));
   const [decision, setDecision] = useState<FirmDecision | null>(null);
+  // The form as this round started (design pass 2b): a lever the student moves off it glows amber.
+  const [roundBase, setRoundBase] = useState<FirmDecision | null>(null);
   const mySubmitted = !!view.teamPlan?.seats.find((x) => x.me)?.submitted;
   const unsent = editedSinceSubmit && (mySubmitted || submittedHere);
   useEffect(() => { onUnsentChange?.(unsent); }, [unsent, onUnsentChange]);
@@ -210,6 +213,7 @@ export function Play({
     defaultDecision().then((dd) => {
       if (live) {
         setDecision(dd);
+        setRoundBase(dd);
         setInfoPreview(!!dd.buy_info);
       }
     });
@@ -417,6 +421,42 @@ export function Play({
     if (callsDesk.enabled && mp) await callsDesk.flush().catch(() => { /* the debounced save already sent each tap */ });
   };
 
+  // The info stack — standings, the team's round table, the boardroom briefs, the season pulse and the
+  // wire. Beside the levers on wide screens (the commit rail owns the right edge, pinned), under them on a phone.
+  const infoStack = (
+    <>
+      <Standings view={view} onSelect={setDetailFirm} />
+      {/* The Round Table is a TEAM surface (who has submitted, the composed plan). Alone at
+          the controls it only repeats the desk chips above the form, so solo play skips it. */}
+      {view.ownActive && !view.complete && mp && seatRole && (
+        <RoundTable view={view} rationale={rationale} seatRole={seatRole} standing={standing} onFocusDesk={setDesk} infoCost={infoCost} />
+      )}
+      {/* 11-09: every game, not only Team roles (Pro) — the officers read own + public numbers; Team roles adds the noisy briefs */}
+      {view.ownActive && <Boardroom view={view} onOpen={(to) => { setDest("review"); setRtab(to); }} />}
+      {view.history.length > 1 && (
+        <Card>
+          <Eyebrow>Season pulse</Eyebrow>
+          <div className="grid gap-1.5">
+            <div className="flex items-center justify-between text-[0.72rem] text-inksoft"><span>Cash</span><Sparkline values={view.history.map((h) => h.own.cash)} /></div>
+            <div className="flex items-center justify-between text-[0.72rem] text-inksoft"><span>Score</span><Sparkline values={view.history.map((h) => h.own.score)} color="var(--color-copper)" /></div>
+            <div className="flex items-center justify-between text-[0.72rem] text-inksoft"><span>Net income</span><Sparkline values={view.history.map((h) => h.own.netIncome)} /></div>
+          </div>
+        </Card>
+      )}
+      <Events events={parseEvents(view.events, view.names[view.own.id] ?? "", { tankUnits: tankUnitsOf(view) })} />
+    </>
+  );
+
+  // The pinned tab pill floats over the page; once it's stuck, a soft fade behind it keeps scrolled text from
+  // reading through around the pill (a sentinel just above it says when it has left its place).
+  const navSentinel = useRef<HTMLDivElement>(null);
+  const [navStuck, setNavStuck] = useState(false);
+  useEffect(() => {
+    const el = navSentinel.current; if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setNavStuck(!e.isIntersecting && e.boundingClientRect.top < 0));
+    io.observe(el); return () => io.disconnect();
+  }, []);
+
   const nav: { id: Dest; label: string }[] = [
     { id: "decide", label: view.complete ? "Season" : "Decide" },
     { id: "review", label: "Review" },
@@ -453,8 +493,8 @@ export function Play({
           then one row: round · seat plate + chips · the numbers. Below xl the plate drops to its own
           line under the round (it and the stats don't fit side by side); on a phone the seat bar
           above carries the seat, the clock rides the round line and the stats sit three-up. */}
-      <header className="border-b border-line2 pb-3">
-        <div className="flex min-w-0 items-center gap-2 pb-1">
+      <header className="mb-3">
+        <div className="flex min-w-0 items-center gap-2 pb-2">
           <div className="eyebrow min-w-0 truncate"><span className="hidden sm:inline">Drink Wars · </span>{view.difficulty}</div>
           <span className="hidden sm:inline-flex">{breweryChip}</span>
           <span className="flex-1" />
@@ -462,12 +502,15 @@ export function Play({
           {onExit && <button onClick={onExit} className={UTIL_BTN}>Leave</button>}
           <ModeToggle inline />
         </div>
-        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        {/* Design pass 2 (Control Room Glass): one glass instrument bar — round + pips · seat plate ·
+            the numbers · LOCK IN. Below xl the plate drops to its own line; on a phone the seat bar above
+            carries the seat, the clock rides the round line and the stats sit three-up. */}
+        <div data-dw="hud" className="card flex flex-wrap items-stretch gap-x-6 gap-y-3 px-4 py-3 sm:px-5">
           <div className="min-w-0 basis-full sm:basis-auto">
             <div className="flex items-baseline gap-3">
-              <h1 className="display text-2xl font-semibold sm:text-3xl">
+              <h1 className="display text-2xl font-extrabold sm:text-[1.9rem]">
                 Round <span className="text-copper">{Math.min(view.round + 1, view.nRounds)}</span>
-                <span className="text-inksoft"> / {view.nRounds}</span>
+                <span className="text-lg font-semibold text-inksoft"> of {view.nRounds}</span>
                 {/* Scoring-layer §2: an excluded round must be visibly marked BEFORE it's
                     played — an announced exclusion teaches that experimenting is cheap. */}
                 {!roundCounts(view) && (
@@ -476,9 +519,16 @@ export function Play({
                   </span>
                 )}
               </h1>
-              {liveDeadline && <span className="ml-auto font-mono text-lg font-semibold text-ink sm:hidden" title="Round closes" data-round-closes-mobile>{fmtClock(deadlineAt! - now)}</span>}
+              {liveDeadline && <span className="ml-auto font-mono text-lg font-semibold text-copper sm:hidden" title="Round closes" data-round-closes-mobile>{fmtClock(deadlineAt! - now)}</span>}
             </div>
-            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <div className="mt-1.5 flex gap-1" aria-label={`Round ${Math.min(view.round + 1, view.nRounds)} of ${view.nRounds}`} data-dw="round-pips">
+              {Array.from({ length: view.nRounds }, (_, i) => {
+                const cur = i === Math.min(view.round, view.nRounds - 1) && !view.complete;
+                const done = i < view.round || view.complete;
+                return <span key={i} className="h-[5px] w-5 rounded-full" style={{ background: cur ? "var(--color-copper)" : done ? "var(--color-faint)" : "var(--well)", boxShadow: cur ? "0 0 10px var(--glow-a)" : done ? undefined : "var(--well-shadow)" }} />;
+              })}
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               <span className="inline-flex max-w-full sm:hidden">{breweryChip}</span>
               {view.segments.filter((s) => s.active).map((s) => (
                 <Tag key={s.id} tone="copper">{SEG_TAG[s.id] ?? s.id}</Tag>
@@ -486,29 +536,29 @@ export function Play({
               {/* DW-077: the shock pills that used to sit here are now the wire strip below the header. */}
             </div>
           </div>
-          {seated && <div className="order-3 hidden min-w-0 basis-full sm:block xl:order-none xl:basis-auto"><SeatPlate role={seatRole!} name={seatName} seats={view.seats} /></div>}
+          {seated && <div className="order-3 hidden min-w-0 basis-full self-center sm:block xl:order-none xl:basis-auto"><SeatPlate role={seatRole!} name={seatName} seats={view.seats} /></div>}
           {/* Phone: Cash · Capacity · Rank three-up. Wider: a right-aligned run of stats that thins
               where the seat plate shares the row (xl) and fills back in at 2xl. */}
-          <div className="order-2 grid w-full grid-cols-3 gap-x-3 sm:ml-auto sm:flex sm:w-auto sm:flex-wrap sm:items-start sm:justify-end sm:gap-x-6 xl:order-none">
+          <div className="order-2 grid w-full grid-cols-3 gap-x-3 sm:ml-auto sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end sm:gap-x-7 xl:order-none">
             <Stat label="Cash" value={fmt.money(view.own.cash)} accent={view.own.cash < 300 ? "brick" : "ink"} />
-            <span className={seated ? "sm:hidden md:block xl:hidden 2xl:block" : "sm:hidden md:block"}><Stat label="Capacity" value={fmt.int(view.own.cap)} sub="drinks/rd" /></span>
             {view.ownResult && (
-              <span className={seated ? "hidden lg:block xl:hidden 2xl:block" : "hidden lg:block"}>
-                <Stat label="Net income" value={fmt.signed(view.ownResult.pnl.net_income)} accent={view.ownResult.pnl.net_income < 0 ? "brick" : "ink"} />
+              <span className="hidden lg:block">
+                <Stat label="Net income" value={fmt.signed(view.ownResult.pnl.net_income)} accent={view.ownResult.pnl.net_income < 0 ? "brick" : "hop"} />
               </span>
             )}
-            <Stat label="Your rank" value={myRank > 0 ? `#${myRank}` : "—"} accent="copper" sub={view.ownActive ? undefined : "exited"} />
+            <span className="sm:hidden md:block"><Stat label="Capacity" value={fmt.int(view.own.cap)} sub="drinks/rd" /></span>
+            <Stat label="Rank" value={myRank > 0 ? <>#{myRank}<span className="text-sm font-semibold text-inksoft"> of {view.standings.length}</span></> : "—"} accent={myRank > 0 && myRank === view.standings.length && view.standings.length > 1 ? "brick" : "copper"} sub={view.ownActive ? undefined : "exited"} />
             {liveDeadline && (
-              <div className="hidden rounded-[10px] border border-line px-3 py-1.5 text-right sm:block" data-round-closes>
-                <div className="text-[0.62rem] uppercase tracking-[0.14em] text-inksoft">Round closes</div>
-                <div className="font-mono text-lg font-semibold leading-tight text-ink">{fmtClock(deadlineAt! - now)}</div>
+              <div className="hidden flex-col justify-center border-l border-line pl-6 text-right sm:flex" data-round-closes>
+                <div className="text-[0.62rem] font-bold uppercase tracking-[0.14em] text-inksoft">Lock in</div>
+                <div className="tnum text-[1.9rem] font-bold leading-none text-copper" style={{ textShadow: "0 0 18px var(--glow-a)" }}>{fmtClock(deadlineAt! - now)}</div>
               </div>
             )}
           </div>
         </div>
       </header>
       {/* DW-077 §A: the wire strip — full-width under the header, on every tab. */}
-      <div className="-mx-3 mb-3 sm:-mx-5"><WireStrip events={wire} /></div>
+      <div className="mb-3"><WireStrip events={wire} /></div>
 
       {notices}
       {banner && <div className="mb-3 rounded-lg border px-3 py-2 text-sm text-inksoft" style={{ borderColor: mp && view.ownActive && !view.complete ? "var(--color-copper)" : "var(--color-line2)" }}>{banner}</div>}
@@ -516,8 +566,10 @@ export function Play({
           plate / phone seat bar, the desk card's "Your seat" chip and the commit panel all say it.) */}
 
       {/* tab row — three pills directly below the HUD (design: Decide · Review · City & Globe) */}
-      <nav data-dw-tabs className="sticky top-0 z-20 -mx-3 mb-4 flex gap-1.5 overflow-x-auto border-b border-line2 bg-paper/85 px-3 py-2 backdrop-blur sm:-mx-5 sm:px-5">
-        {nav.map((n) => navPill(n))}
+      <div ref={navSentinel} aria-hidden className="h-px" />
+      <nav data-dw-tabs className="sticky top-0 z-20 -mx-3 mb-4 px-3 py-2 transition-[background] sm:-mx-5 sm:px-5" style={{ background: navStuck ? "linear-gradient(to bottom, color-mix(in srgb, var(--color-paper) 94%, transparent) 62%, transparent)" : "transparent" }}>
+        {/* A glass pill (design pass 2); the pill is opaque so the page never reads through it while pinned. */}
+        <div className="tt-tabbar inline-flex max-w-full gap-1 overflow-x-auto">{nav.map((n) => navPill(n))}</div>
       </nav>
 
       {/* destination */}
@@ -540,17 +592,15 @@ export function Play({
                   ); })}
                 </div>
               )}
+              {view.ownActive && !view.complete ? (
+                  <DecisionForm view={view} defaultDecision={defaultDecision} onPlay={handlePlay} busy={busy} infoCost={infoCost} onInfoChange={onInfoChange} infoLocked={infoLocked} poaches={poaches} onPoach={queuePoach} cityActions={cityActions} decision={decision} setDecision={editDecision} unsent={unsent} onEdited={markEdited} desk={desk} submitLabel={submitLabel} footerNote={footerNote} seatRole={mp ? seatRole : null} standing={standing}
+                    callsSlot={callsDesk.enabled ? <CallsTickets desk={callsDesk} round={view.round} open={roundOpen} /> : undefined} callsCount={callsDesk.enabled ? callsDesk.count : undefined}
+                    baseline={roundBase}
+                    cockpit={<><Instruments view={view} /><DeskCockpit desk={desk} view={view} seatRole={seatRole} rationale={rationale[desk] ?? ""} onRationale={(v) => setRationale((p) => ({ ...p, [desk]: v }))} /></>}
+                    aside={infoStack} />
+              ) : (
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
               <div className="min-w-0">
-                {view.ownActive && !view.complete && (
-                  <div className="mb-4">
-                    <DeskCockpit desk={desk} view={view} seatRole={seatRole} rationale={rationale[desk] ?? ""} onRationale={(v) => setRationale((p) => ({ ...p, [desk]: v }))} />
-                  </div>
-                )}
-                {view.ownActive && !view.complete && (
-                  <DecisionForm view={view} defaultDecision={defaultDecision} onPlay={handlePlay} busy={busy} infoCost={infoCost} onInfoChange={onInfoChange} infoLocked={infoLocked} poaches={poaches} onPoach={queuePoach} cityActions={cityActions} decision={decision} setDecision={editDecision} unsent={unsent} onEdited={markEdited} desk={desk} submitLabel={submitLabel} footerNote={footerNote} seatRole={mp ? seatRole : null} standing={standing}
-                    callsSlot={callsDesk.enabled ? <CallsTickets desk={callsDesk} round={view.round} open={roundOpen} /> : undefined} callsCount={callsDesk.enabled ? callsDesk.count : undefined} />
-                )}
                 {!view.ownActive && !view.complete && (
                   <Card>
                     <Eyebrow>Forced exit</Eyebrow>
@@ -580,26 +630,10 @@ export function Play({
                 {view.complete && <SeasonOver view={view} rank={myRank} onReset={onReset} mp={mp} />}
               </div>
               <div className="grid min-w-0 grid-cols-1 content-start gap-4 lg:sticky lg:top-[4.25rem] lg:max-h-[calc(100vh-5.25rem)] lg:self-start lg:overflow-y-auto">
-                <Standings view={view} onSelect={setDetailFirm} />
-                {/* The Round Table is a TEAM surface (who has submitted, the composed plan). Alone at
-                    the controls it only repeats the desk chips above the form, so solo play skips it. */}
-                {view.ownActive && !view.complete && mp && seatRole && (
-                  <RoundTable view={view} rationale={rationale} seatRole={seatRole} standing={standing} onFocusDesk={setDesk} infoCost={infoCost} />
-                )}
-                {view.briefings.length > 0 && <Boardroom briefings={view.briefings} />}
-                {view.history.length > 1 && (
-                  <Card>
-                    <Eyebrow>Season pulse</Eyebrow>
-                    <div className="grid gap-1.5">
-                      <div className="flex items-center justify-between text-[0.72rem] text-inksoft"><span>Cash</span><Sparkline values={view.history.map((h) => h.own.cash)} /></div>
-                      <div className="flex items-center justify-between text-[0.72rem] text-inksoft"><span>Score</span><Sparkline values={view.history.map((h) => h.own.score)} color="var(--color-copper)" /></div>
-                      <div className="flex items-center justify-between text-[0.72rem] text-inksoft"><span>Net income</span><Sparkline values={view.history.map((h) => h.own.netIncome)} /></div>
-                    </div>
-                  </Card>
-                )}
-                <Events events={parseEvents(view.events, view.names[view.own.id] ?? "", { tankUnits: tankUnitsOf(view) })} />
+                {infoStack}
               </div>
               </div>
+              )}
             </div>
           )}
 

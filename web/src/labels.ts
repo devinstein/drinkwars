@@ -49,11 +49,13 @@ export const humanizeId = (id: string): string => id.replace(/_/g, " ").replace(
 /** District character for the city map — a one-line "what to build here," so the
  *  siting tradeoff reads at a glance (exact rent/capacity/brand numbers come from
  *  config). Falls back to the district blurb for any id not listed. */
-export const DISTRICT_BEST: Record<string, string> = {
-  downtown: "Best for a taproom — visibility & foot traffic",
-  riverside: "Balanced — a steady brand draw",
-  southside: "Best for production — cheapest, most output",
-  suburbs: "Roomy & affordable — a little extra output, quiet trade",
+/** Each district's trade-offs in plain words (11-09, Devin: no "best for…" advice — players discover what
+ *  suits a site). Facts only, matching the Rent / Output / Brand figures beside them. */
+export const DISTRICT_TRAITS: Record<string, string> = {
+  downtown: "Busy streets · high rent · tight space · brand lift",
+  riverside: "Walkable · moderate rent · some brand lift",
+  southside: "Industrial yards · low rent · more output · no brand lift",
+  suburbs: "Quiet streets · average rent · a little more output · no brand lift",
 };
 
 /** Map/feed metadata for each shock type (presentation only — engine ids stay generic). */
@@ -157,8 +159,8 @@ export function producerWeight(t: FacilityTypeConfig): number {
   return prod / (prod + retail || 1);
 }
 
-/** How well a district SUITS a facility type — the single "is this a good spot?" number behind
- *  the founding recommendation and the type-aware auto-siting fallback. Producers reward output
+/** How well a district SUITS a facility type — used only by the type-aware auto-siting fallback (a founding
+ *  facility nobody placed). Never shown as advice since 11-09. Producers reward output
  *  (capacity_mult) and punish rent; retail rewards the district brand draw and lightly punishes
  *  rent. Purely a ranking heuristic (the engine math is unchanged); higher = better fit. */
 export function districtFitScore(t: FacilityTypeConfig, d: DistrictConfig): number {
@@ -172,7 +174,7 @@ export function allowedDistrictsForType(typeId: string, districts: DistrictConfi
   return districts.filter((d) => (ZONE_OF[d.kind]?.allow ?? []).includes(typeId));
 }
 
-/** Zoning-permitted districts for a type, best fit first — [0] is the recommended home. */
+/** Zoning-permitted districts for a type, best fit first — [0] is where auto-siting puts an unplaced build. */
 export function rankDistrictsForType(t: FacilityTypeConfig, districts: DistrictConfig[]): DistrictConfig[] {
   return allowedDistrictsForType(t.id, districts).sort((a, b) => districtFitScore(t, b) - districtFitScore(t, a));
 }
@@ -180,10 +182,10 @@ export function rankDistrictsForType(t: FacilityTypeConfig, districts: DistrictC
 /** Single-letter tags + a one-line role note for each facility type (City View pins/cards). */
 export const FAC_TAG: Record<string, string> = { brewery_small: "n", brewery_large: "B", taproom: "T", canning_line: "C", brewpub: "P", bottle_shop: "S" };
 export const FAC_NOTE: Record<string, string> = {
-  brewery_small: "A small, flexible base of output — a cheap first footprint.",
-  brewery_large: "Heavy output for the cost-and-scale game. Wants cheap industrial land.",
-  taproom: "Mostly a retail brand magnet (a little brewing) — best where foot traffic runs high.",
-  canning_line: "Solid packaged output that travels — fits most districts.",
+  brewery_small: "A small, flexible base of output at a low build cost.",
+  brewery_large: "Heavy brewing output. Zoned for industrial land only.",
+  taproom: "Mostly retail — a brand draw for its neighborhood, with a little brewing.",
+  canning_line: "Packaged output that ships well. Allowed in every district.",
   brewpub: "Brews and serves under one roof — moderate output with a real retail draw.",
   bottle_shop: "Pure retail — no brewing, but a local sales presence and brand draw. Ships beer in.",
 };

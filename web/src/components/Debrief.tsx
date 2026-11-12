@@ -254,7 +254,7 @@ function useSlides(D: DebriefDeck, marks: Map<string, Mark>) {
         <div className="dbf-soft" style={{ marginTop: -8, fontSize: 28 }}>Lenders stop new loans. From quarter {DEBRIEF_ACQUIRABLE} a rival can buy you; at quarter {DEBRIEF_RUNWAY}, forced exit.</div>
         <div>{shown.map((t) => (
           <div key={t.name} className="dbf-tr">
-            <div>{firm(t.name)}{t.npc && <span className="dbf-faint" style={{ fontSize: 20 }}> NPC</span>}</div>
+            <div>{firm(t.name)}{t.npc && <span className="dbf-faint" style={{ fontSize: 20 }}> bot</span>}</div>
             <div><div>{t.short}</div>{t.loss && <div className="loss">{t.loss}</div>}</div>
             <div>{t.n ? <Pips n={t.n} /> : <span className="dbf-soft">credit-rationed only</span>}</div>
           </div>

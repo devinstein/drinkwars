@@ -26,8 +26,8 @@ const SEAT_LABEL: Record<string, string> = { ceo: "CEO", cfo: "CFO", cmo: "CMO",
 const DESK_TITLE: Record<string, string> = { finance: "Finance", operations: "Operations", commercial: "Marketing", people: "People", all: "Whole firm" };
 // Seat colours per the handoff's shared tokens (dark / light). The page edge + "On your desk" lead use them.
 const SEAT_COLOR: Record<string, { dark: string; light: string }> = {
-  ceo: { dark: "#bf9ae0", light: "#6c4294" }, cfo: { dark: "#9bcb5e", light: "#3d6b18" }, coo: { dark: "#4cc0cb", light: "#1d7a83" },
-  cmo: { dark: "#ee9a4a", light: "#a65424" }, chro: { dark: "#edbe48", light: "#855a08" },
+  ceo: { dark: "#b896e6", light: "#6c4294" }, cfo: { dark: "#5fbf52", light: "#3d6b18" }, coo: { dark: "#4cc0cb", light: "#1d7a83" },
+  cmo: { dark: "#ee9a4a", light: "#a65424" }, chro: { dark: "#e8c04c", light: "#855a08" },
 };
 const seatColor = (role: string | null | undefined): string => {
   const c = SEAT_COLOR[role ?? ""];
@@ -46,7 +46,7 @@ const DESK_LINE: Record<string, Partial<Record<string, string>>> = {
   craft_wave: { finance: "Revenue surged with the festival crowd.", operations: "Shoppers surged — capacity was the constraint.", commercial: "Demand surged across categories; brand and price shaped who won it.", people: "A busy quarter for the crew.", all: "Demand surged across the board." },
   health_shift: { finance: "Legacy-beer revenue weakened; the mix moved.", operations: "Shoppers moved toward lighter styles — watch the category mix.", commercial: "Drinkers turned from legacy beer; positioning matters more.", people: "No direct hit to the roster; the mix shift is a strategy question.", all: "Drinkers turned away from legacy beer." },
   na_moment: { finance: "The new category drew demand — revenue follows whoever is positioned there.", operations: "Demand for the new category jumped; capacity there pays.", commercial: "Non-alcoholic went mainstream; the category's shoppers multiplied.", people: "No direct hit to the roster.", all: "Demand for the new category jumped." },
-  "Tastes are shifting": { finance: "No hit to finance this round. Quality spend now pays off more, so expect a capex ask.", operations: "Quality is gaining ground — recipe investment pays off more from here.", commercial: "Shoppers weigh quality more now; brand alone carries less.", people: "No direct hit; quality-minded hires are worth more now.", all: "Quality is gaining ground in the mainstream — recipe spend pays off more." },
+  "Tastes are shifting": { finance: "No hit to finance this round. Quality spending now pays off more, so expect a request to fund more of it.", operations: "Quality is gaining ground — recipe investment pays off more from here.", commercial: "Shoppers weigh quality more now; brand alone carries less.", people: "No direct hit; quality-minded hires are worth more now.", all: "Quality is gaining ground in the mainstream — recipe spend pays off more." },
 };
 /** A regional shock hit only producers in one market, scaled by the share of production there. */
 const regionalLine = (region: string, exposure: number | undefined): string =>
@@ -224,7 +224,7 @@ export function RoundResolved({ view, round, mp, seatRole, calls, onDismiss, onS
                     <span className="rounded-[4px]" style={{ background: e.kind === "shock" ? "var(--color-brick)" : "var(--color-gold)" }} />
                     <div className="grid gap-0.5">
                       <span className="display text-[1.15rem] font-semibold sm:text-[1.3rem]">{e.title || "Market move"}</span>
-                      <span className="text-[0.95rem] leading-snug sm:text-[1.05rem]"><b style={{ color: seat }}>On your desk:</b> {line || e.body}</span>
+                      <span className="text-[0.95rem] leading-snug sm:text-[1.05rem]"><b style={{ color: `color-mix(in srgb, ${seat} 55%, var(--color-ink))` }}>On your desk:</b> {line || e.body}</span>
                     </div>
                   </div>
                 );

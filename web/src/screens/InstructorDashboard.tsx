@@ -55,7 +55,7 @@ const fcov = (n: number) => (n == null ? "—" : n > 900 ? "∞" : `${n.toFixed(
 const flev = (n: number) => (n == null ? "—" : n.toFixed(2));
 const fscore = (n: number) => (n == null ? "—" : n.toFixed(3));
 const ftime = (s: number | null) => (s == null ? "—" : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${Math.round(s)}s`);
-const shortName = (t: DashTeam) => (t.joined ? t.name : t.name.replace(/^Open slot/i, "NPC"));
+const shortName = (t: DashTeam) => (t.joined ? t.name : t.name.replace(/^Open slot/i, "Bot"));
 
 // --- gamemaster (DW-037) labels -----------------------------------------------
 const KIND_LABEL: Record<string, string> = { cost_spike: "cost spike", capacity_hit: "capacity hit", demand_drop: "demand drop", demand_boost: "demand boost", cash_hit: "cash hit" };
@@ -237,7 +237,7 @@ function OverviewPanel({ d }: { d: Derived }) {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-semibold">{d.nameByFirm.get(p.firmId)}</span>
-                  {!d.joinedByFirm.get(p.firmId) && <Tag>NPC</Tag>}
+                  {!d.joinedByFirm.get(p.firmId) && <Tag>Bot</Tag>}
                   {p.status !== "active" && <Tag tone={p.status === "bankrupt" ? "brick" : "copper"}>{p.status?.replace("exited_", "")}</Tag>}
                 </div>
                 <div className="mt-0.5 h-1.5 w-full overflow-hidden rounded-[2px] bg-line">
@@ -260,7 +260,7 @@ function OverviewPanel({ d }: { d: Derived }) {
           <Stat label="Bought research" value={`${boughtInfo}/${joinedEng.length}`} />
         </div>
         {nonSub.length > 0 && <div className="mt-2 text-[0.72rem] text-brick">Didn't submit: {nonSub.join(", ")} — carried last quarter's standing plan (prices, presence, standing investments; one-shot moves don't repeat).</div>}
-        {joinedEng.length === 0 && <div className="mt-2 text-[0.72rem] text-inksoft">No human teams yet — all slots are adaptive NPCs.</div>}
+        {joinedEng.length === 0 && <div className="mt-2 text-[0.72rem] text-inksoft">No human teams yet — every slot is played by a bot that adapts to the market.</div>}
       </Card>
 
       {events.length > 0 && <Guard label="Event feed"><Events events={parseEvents(events)} /></Guard>}
@@ -1043,7 +1043,7 @@ function TeamPanel({ d }: { d: Derived }) {
       <Card>
         <Eyebrow>Decision process, beliefs &amp; reflections</Eyebrow>
         {eng.length === 0 ? (
-          <div className="text-sm text-inksoft">No decisions recorded (NPC or not yet played).</div>
+          <div className="text-sm text-inksoft">No decisions recorded (a bot's firm, or not played yet).</div>
         ) : (
           <div className="grid gap-2">
             {eng.map((e) => (
@@ -1197,7 +1197,7 @@ function SchedulePanel({ d, client, gameId, roundKey }: { d: Derived; client: In
     <Card>
       <Eyebrow>Schedule · the gamemaster board</Eyebrow>
       <div className="mb-3 text-sm text-inksoft">
-        Past rounds show what fired; current and future rounds show the forward schedule — engine-rolled and instructor-planted. Students see a planted event only per that shock's own signaling: unannounced types stay a surprise (planting does not telegraph).
+        Past rounds show what fired; current and future rounds show the forward schedule — both the events the game rolls at random and the ones you plant. Students get the same warning for a planted event as for a random one of that kind: kinds that normally arrive unannounced stay a surprise.
       </div>
       {err && <div className="mb-2 text-[0.72rem] text-brick">{err}</div>}
       {!tl && !err && <div className="mb-2 text-[0.72rem] text-inksoft">Loading the shock timeline…</div>}
@@ -1303,7 +1303,7 @@ function ExportPanel({ exporting, onExport }: { exporting: boolean; onExport: (f
   return (
     <Card>
       <Eyebrow>Export · research data</Eyebrow>
-      <div className="mb-3 text-sm text-inksoft"><strong>CSV</strong> — the tidy per-firm-per-round panel for grading and analysis (one row per firm per resolved round: financials, stocks, market position, scorecard with practice-round flag and bridge, engagement/beliefs/reflection, and the team's members with NetIDs and chairs). <strong>JSON</strong> — everything, including agreements, market evolution and the event log.</div>
+      <div className="mb-3 text-sm text-inksoft"><strong>CSV</strong> — the tidy per-firm-per-round panel for grading and analysis (one row per firm per resolved round: financials, stocks, market position, scorecard and what drove its change each round, with practice rounds marked; engagement/beliefs/reflection, and the team's members with NetIDs and chairs). <strong>JSON</strong> — everything, including agreements, market evolution and the event log.</div>
       <div className="mb-3 grid gap-1">{EXPORT_TABLES.map((t) => <div key={t} className="flex items-center gap-2 text-[0.78rem] text-ink"><span className="h-1.5 w-1.5 flex-none rounded-full bg-copper" />{t}</div>)}</div>
       <div className="flex gap-2"><Button variant="go" onClick={() => onExport("csv")} disabled={exporting}>Download CSV</Button><Button variant="ghost" onClick={() => onExport("json")} disabled={exporting}>Download JSON</Button></div>
     </Card>

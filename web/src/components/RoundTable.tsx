@@ -59,7 +59,7 @@ export function RoundTable({ view, rationale, seatRole, standing, onFocusDesk, i
                   <span className="mt-0.5 h-1.5 w-1.5 rounded-full" style={{ background: note ? p.accent : "var(--color-line2)" }} />
                   <span className="min-w-0">
                     <span className="flex items-baseline gap-1.5">
-                      <span className="font-mono text-[0.58rem] font-bold uppercase tracking-wide" style={{ color: p.accent }}>{p.short}</span>
+                      <span className="font-mono text-[0.58rem] font-bold uppercase tracking-wide" style={{ color: `color-mix(in srgb, ${p.accent} 55%, var(--color-ink))` }}>{p.short}</span>
                       <span className="truncate text-[0.7rem] text-inksoft">{p.title}</span>
                     </span>
                     <span className="block truncate text-[0.74rem] text-ink">{note || <span className="italic text-inksoft/70">no call yet — open this desk</span>}</span>
@@ -106,11 +106,12 @@ function TeamPlanBoard({ view, seatRole, standing, infoCost = 0 }: { view: GameV
 
   return (
     <div className="mt-1 grid gap-2">
-      {/* readiness rail */}
-      <div className="grid gap-1">
+      {/* readiness rail — the crew (design pass 2b: a glowing dot per chair, green once it's in) */}
+      <div className="grid gap-1" data-dw="crew">
         {view.seats.map((st, i) => (
-          <div key={i} className="flex items-center justify-between text-[0.78rem]">
-            <span className="truncate text-ink">{st.name} {st.role && <span className="font-mono text-[0.6rem] uppercase text-copperdeep">{st.role}</span>}{st.desk && st.desk !== "all" && <span className="text-[0.66rem] text-inksoft"> · {st.desk}</span>}</span>
+          <div key={i} className="flex items-center justify-between gap-2 text-[0.78rem]">
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: st.submitted ? "var(--color-hop)" : "var(--color-copper)", boxShadow: `0 0 8px ${st.submitted ? "var(--color-hop)" : "var(--glow-a)"}` }} />
+            <span className="min-w-0 flex-1 truncate text-ink">{st.name} {st.role && <span className="font-mono text-[0.6rem] uppercase text-copperdeep">{st.role}</span>}{st.desk && st.desk !== "all" && <span className="text-[0.66rem] text-inksoft"> · {st.desk}</span>}</span>
             <span className="font-mono text-[0.58rem] font-bold uppercase tracking-wide" style={{ color: st.submitted ? "var(--color-hop)" : "var(--color-inksoft)" }}>{st.submitted ? "✓ in" : "waiting"}</span>
           </div>
         ))}
@@ -118,8 +119,8 @@ function TeamPlanBoard({ view, seatRole, standing, infoCost = 0 }: { view: GameV
 
       {/* the plan, lever by lever */}
       {!composed ? (
-        <div className="rounded-lg border border-dashed border-line2 bg-panel px-2.5 py-2 text-[0.72rem] text-inksoft">
-          Nothing on the table yet — as each desk submits, what the firm will actually do appears here for everyone to check.
+        <div className="rounded-lg border border-dashed border-line2 px-2.5 py-2 text-[0.72rem] text-inksoft">
+          Nothing on the table yet — each desk's submit shows up here.
         </div>
       ) : (
         <div className="grid gap-1.5">
@@ -128,19 +129,19 @@ function TeamPlanBoard({ view, seatRole, standing, infoCost = 0 }: { view: GameV
             {table.unusedCount > 0 && <span className="rounded-full border border-brick/60 px-1.5 py-0.5 font-mono text-[0.56rem] uppercase tracking-wide text-brick">✗ {table.unusedCount} entr{table.unusedCount === 1 ? "y" : "ies"} not used</span>}
           </div>
           {me && !me.submitted && !plan?.locked && (
-            <div className="text-[0.68rem] italic text-inksoft">You haven't submitted this round — your desk isn't on the table yet.</div>
+            <div className="text-[0.68rem] italic text-inksoft">Your desk isn't on the table until you submit.</div>
           )}
           {myUnused > 0 && (
             <div className="rounded-md border border-brick/50 px-2 py-1 text-[0.7rem] text-brick">{myUnused === 1 ? "One of your entries" : `${myUnused} of your entries`} will not run — see the ✗ rows. Change it on your desk and submit again, or settle it with the chair who owns it.</div>
           )}
-          {TABLE_DESKS.map((desk) => {
+          {TABLE_DESKS.filter((desk) => table.rows.some((r) => r.desk === desk)).map((desk) => {
             const p = PERSONAS[desk];
             const chair = chairOf(desk);
             const rows = table.rows.filter((r) => r.desk === desk);
             return (
-              <div key={desk} className="rounded-lg border border-line2 bg-panel px-2.5 py-1.5">
+              <div key={desk} className="border-t border-line pt-1.5">
                 <div className="flex items-baseline justify-between gap-2">
-                  <span className="font-mono text-[0.58rem] font-bold uppercase tracking-wide" style={{ color: p.accent }}>{p.short}</span>
+                  <span className="font-mono text-[0.58rem] font-bold uppercase tracking-wide" style={{ color: `color-mix(in srgb, ${p.accent} 55%, var(--color-ink))` }}>{p.short}</span>
                   <span className="truncate font-mono text-[0.56rem] uppercase tracking-wide text-inksoft">
                     {chair ? `${chair.me ? "you" : chair.name} · ${chair.submitted ? "in" : "waiting"}`
                       : desk === "strategy" ? (ceoSeated ? "the CEO's desk" : "no CEO seated")
@@ -169,12 +170,22 @@ function TeamPlanBoard({ view, seatRole, standing, infoCost = 0 }: { view: GameV
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <div className="mt-0.5 text-[0.7rem] italic text-inksoft/80">no moves this round</div>
-                )}
+                ) : null}
               </div>
             );
           })}
+          {/* Desks with nothing on the table share one line (design pass 2b: the long column of "no moves" cards). */}
+          {(() => {
+            const quiet = TABLE_DESKS.filter((desk) => !table.rows.some((r) => r.desk === desk));
+            if (!quiet.length) return null;
+            const note = (desk: TableDesk) => { const chair = chairOf(desk); return chair ? `${chair.me ? "you" : chair.name} · ${chair.submitted ? "in" : "waiting"}` : desk === "strategy" ? (ceoSeated ? "CEO's desk" : "no CEO") : ceoSeated ? "empty · CEO covers" : "empty"; };
+            return (
+              <div className="border-t border-line pt-1.5 text-[0.68rem] leading-relaxed text-inksoft" data-dw="quiet-desks">
+                <span className="font-mono text-[0.56rem] font-bold uppercase tracking-wide">No moves</span>
+                {quiet.map((desk) => <span key={desk}> · <b className="font-mono text-[0.6rem] uppercase" style={{ color: `color-mix(in srgb, ${PERSONAS[desk].accent} 55%, var(--color-ink))` }}>{PERSONAS[desk].short}</b> <span className="text-faint">{note(desk)}</span></span>)}
+              </div>
+            );
+          })()}
 
           {/* the cash check — spending desks vs the financing desk, before lock */}
           {cash && (

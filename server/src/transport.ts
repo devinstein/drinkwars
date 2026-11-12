@@ -18,10 +18,10 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { loadConfig } from "drinkwars-engine/node";
-import { deepMerge, generateHiringMarket, projectMarkets, projectMarketSizing, projectFirms, projectShocks, projectHistory, roleBriefings, summarizeAgreementsFor, summarizeLobbying } from "drinkwars-engine";
+import { deepMerge, generateHiringMarket, projectMarkets, projectMarketSizing, projectFirms, projectResearch, projectShocks, projectHistory, roleBriefings, summarizeAgreementsFor, summarizeLobbying } from "drinkwars-engine";
 import type { FirmDecision } from "drinkwars-engine";
 import { createClient } from "@supabase/supabase-js";
-import { GameOrchestrator, InMemoryAdapter, buildInstructorDashboard, createSupabaseAdapter, dashboardToCsv, randomBreweryNames, renameFirms, visibleEvents, withRequestCache, type StorageAdapter } from "./index.js";
+import { GameOrchestrator, InMemoryAdapter, buildInstructorDashboard, createSupabaseAdapter, dashboardToCsv, randomBreweryNames, renameFirms, visibleEvents, pactParties, withRequestCache, type StorageAdapter } from "./index.js";
 import { getGameForecasts, getSeatForecasts, submitForecasts } from "./forecasts.js"; // DW-074 calls channel
 
 // Load server/.env (only needed for supabase mode; harmless otherwise).
@@ -186,6 +186,7 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
   let markets: ReturnType<typeof projectMarkets> = []; // MOD-B01 per-team city view (same projection as single-player)
   let sizing: ReturnType<typeof projectMarketSizing> = null; // DW-084 TAM / SAM / SOM
   let firms: ReturnType<typeof projectFirms> = []; // public snapshots; rivals' private fields redacted unless this team bought market research
+  let research: ReturnType<typeof projectResearch> = null; // 11-07: the three research reports — only for a team whose plan buys them
   let shocks: ReturnType<typeof projectShocks> = [];
   let hiringMarket: ReturnType<typeof generateHiringMarket> = []; // MOD-B12 candidate pool (shared/public — same for every firm)
   const seats = own && game?.firm_mode === "team" ? await orch.getTeamSeats(gameId, teamId) : []; // team firms: this firm's C-suite seats + submit status
@@ -197,10 +198,12 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
   const teamPlan = own && game?.firm_mode === "team" && userId ? await orch.getTeamPlan(gameId, teamId, userId, standing) : undefined; // DW-080: composed live from the slices
   const history = own ? projectHistory(allResults, own.id) : []; // own trend + public field aggregate
   const draft = own && game?.firm_mode !== "team" && decision?.submitted ? decision.decision : null;
+  let partiesOf: ReturnType<typeof pactParties> | undefined; // 11-09: a pact's renegotiation news reaches its signatories
   if (own) {
     const ws = await store.getLatestWorldState(gameId);
     if (ws && config?.modules?.teamRoles?.enabled) briefings = roleBriefings(ws.state, config, own.id) as never;
     if (ws) {
+      partiesOf = pactParties(ws.state.agreements);
       fx = ws.state.fx_rates ?? {};
       agreements = summarizeAgreementsFor(ws.state, own.id, nameOf);
       if (config) lobbyInitiatives = summarizeLobbying(config, ws.state);
@@ -208,6 +211,7 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
       // DW-084: TAM / SAM / SOM from the last resolved round — market totals only, no rival's own numbers.
       if (config) sizing = projectMarketSizing(config, own.id, lastFull?.result ?? null, (id) => config.modules?.geography?.markets?.find((m: { id: string }) => m.id === id)?.label ?? id);
       if (config) firms = projectFirms(ws.state, config, own.id, lastFull?.result.firm_results ?? [], !!decision?.decision?.buy_info, nameOf);
+      if (config && decision?.decision?.buy_info) research = projectResearch(allResults, ws.state, config, own.id, nameOf);
       shocks = projectShocks(ws.state, pub.round, config ?? undefined, own.id);
       if (config) hiringMarket = generateHiringMarket(config, ws.state.seed, pub.round);
     }
@@ -228,6 +232,7 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
     standing,
     draft,
     infoActive: !!decision?.decision?.buy_info, // DW-051: research is live iff the FIRM's composed plan buys it (a stray local toggle isn't)
+    research,
     deadlineAt: game?.deadline_at ?? null,
     names,
     styles,
@@ -240,7 +245,7 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
     ownResult,
     unitCostEst,
     standings: (last?.standings ?? []).map((s: { firm_id: string }) => ({ ...s, name: names[s.firm_id] ?? s.firm_id })),
-    events: visibleEvents(last?.events ?? [], own?.id).map((e: string) => renameFirms(e, names)), // DW-071: private news stays private
+    events: visibleEvents(last?.events ?? [], own?.id, partiesOf).map((e: string) => renameFirms(e, names)), // DW-071 / 11-09: one firm's own news stays its own
     submitted: decision?.submitted ?? false,
     ...(seat ? { seat: { teamId: seat.teamId, firmId: seat.firmId, role: seat.role } } : {}),
   };
@@ -372,7 +377,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
 
   // ---- instructor (passcode-gated) ----
   if (path.startsWith("/instructor")) {
-    if (!validInstructorPass(req.headers["x-instructor-pass"])) return send(res, 401, { error: "bad instructor passcode" });
+    if (!validInstructorPass(req.headers["x-instructor-pass"])) return send(res, 401, { error: "wrong instructor passcode" });
     const tier = instructorTier(req.headers["x-instructor-pass"]);
 
     // DW-049: the instructor's own games (newest first) — resume/export without remembering codes.
@@ -407,7 +412,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (method === "POST" && path === "/instructor/roster") {
       // Roster rows resolve to EXISTING users by NetID/email and hand back their claim codes —
       // effectively an account-takeover tool, so it stays with the primary (owner) passcode.
-      if (tier !== "primary") return send(res, 403, { error: "roster provisioning needs the primary instructor passcode" });
+      if (tier !== "primary") return send(res, 403, { error: "loading a class roster needs the main instructor passcode — this one can create and run games only" });
       const { roster, cohort } = await readJson(req);
       if (!Array.isArray(roster) || !roster.length) return send(res, 400, { error: "roster array required" });
       // DW-046: rows are de-duplicated (NetID is case-insensitive), provisioned ONE AT A TIME
@@ -440,7 +445,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       const { code } = await readJson(req);
       const g = await store.getGameByCode(String(code ?? "").toUpperCase());
       if (!g) return send(res, 404, { error: "no game found for that code" });
-      if (!ownsGame(tier, g)) return send(res, 403, { error: "not your game" });
+      if (!ownsGame(tier, g)) return send(res, 403, { error: "that game was created under a different instructor passcode" });
       return send(res, 200, { gameId: g.id, joinCode: g.join_code, nRounds: g.n_rounds });
     }
 
@@ -450,7 +455,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (owned) {
       const g = await store.getGame(owned[1]);
       if (!g) return send(res, 404, { error: `no game ${owned[1]}` });
-      if (!ownsGame(tier, g)) return send(res, 403, { error: "not your game" });
+      if (!ownsGame(tier, g)) return send(res, 403, { error: "that game was created under a different instructor passcode" });
     }
 
     // Instructor analytics dashboard (read-only) + research data export.

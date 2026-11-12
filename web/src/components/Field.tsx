@@ -5,6 +5,8 @@ import type { FirmSnapshot } from "../game/controller.js";
 import { SEG_LABEL, fmt } from "../labels.js";
 import { Card, Eyebrow, Row, Tag } from "./ui.js";
 import { CompareBar, Scatter, type ScatterPoint } from "./charts.js";
+import { PriceLadders, pricesByCategory } from "./Boardroom.js";
+import { ResearchReports } from "./ResearchReports.js";
 
 function avgPrice(f: FirmSnapshot): number {
   const ps = Object.values(f.priceBySeg).filter((p) => p > 0);
@@ -61,14 +63,29 @@ export function Field({ view, infoActive, pending = false, onInspect }: { view: 
         <CompareBar label="Cumulative score" you={you?.score ?? 0} ref_={fieldMedScore} max={Math.max(...scores, 0.01)} fmt={(n) => n.toFixed(2)} />
         {/* one row each on a phone — three label/value pairs side by side overprinted at 360/390 */}
         <div className="mt-2 grid grid-cols-1 text-sm sm:grid-cols-3 sm:gap-3">
-          <Row label="Your share" value={fmt.pct(you?.share ?? 0)} />
+          <Row label="Your share of drinks sold" value={fmt.pct(you?.soldShare ?? you?.share ?? 0)} />
           <Row label="Your capacity" value={`${fmt.int(you?.cap ?? 0)} drinks/rd`} />
           <Row label="Your unit cost" value={you?.unitCost ? fmt.price(you.unitCost) : "—"} />
         </div>
       </Card>
 
-      {/* Market intelligence — gated behind buying research */}
-      {infoActive ? (
+      {/* 11-07: shelf prices are public (information.public_prices) — every team sees where the field priced each
+          category last round, research or not. Research still buys quality, brand, capacity, shares and the map. */}
+      {view.publicPrices && !infoActive && (() => { const rows = pricesByCategory(view); return rows.length ? (
+        <Card>
+          <Eyebrow>Shelf prices · last round · public</Eyebrow>
+          <PriceLadders rows={rows} />
+        </Card>
+      ) : null; })()}
+
+      {/* Market intelligence — gated behind buying research. 11-07: a game with the three reports shows them
+          (retail scan, consumer survey, analyst brief); an older game keeps the exact-figures table. */}
+      {infoActive && view.research ? (
+        <>
+          <ResearchReports view={view} onInspect={onInspect} />
+          <StrategyMap firms={firms} />
+        </>
+      ) : infoActive ? (
         <>
           <Card>
             <Eyebrow>Market Intelligence · rivals revealed</Eyebrow>
@@ -120,8 +137,10 @@ export function Field({ view, infoActive, pending = false, onInspect }: { view: 
           <div className="flex flex-col items-start gap-2 py-4">
             {pending && <p className="text-sm text-ink"><b>Research is ticked in your form but not submitted yet.</b> Submit your desk and this opens for the whole firm within a few seconds.</p>}
             <p className="text-sm text-inksoft">
-              Rivals' quality, brand, capacity, pricing, and the positioning map are hidden. Tick <span className="font-semibold text-copperdeep">Buy market research</span> in
-              your decision to reveal the field — its cost and effect show right there.
+              {view.researchReports
+                ? <>Research is one bundle of three reports: a <b className="text-ink">retail scan</b> of every brewery's sales, a <b className="text-ink">consumer survey</b> (perceived quality and brand, first choice, an NPS-style score and its trend) and an <b className="text-ink">analyst brief</b> (cost and capacity ranges, financial health, staff). Tick <span className="font-semibold text-copperdeep">Buy market research</span> in your decision to buy it for the round.</>
+                : <>Rivals' quality, brand, capacity, {view.publicPrices ? "category shares" : "pricing"} and the positioning map are hidden. Tick <span className="font-semibold text-copperdeep">Buy market research</span> in
+              your decision to reveal the field — its cost and effect show right there.</>}
             </p>
             <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-4">
               {others.slice(0, 4).map((f) => (
@@ -155,7 +174,7 @@ const DIMS: { key: string; label: string; get: (f: FirmSnapshot) => number }[] =
   { key: "T_inv", label: "Investor relations", get: (f) => f.T_inv },
   { key: "T_gov", label: "Regulator relations", get: (f) => f.T_gov },
   { key: "leverage", label: "Leverage", get: (f) => f.leverage },
-  { key: "share", label: "Market share", get: (f) => f.share },
+  { key: "share", label: "Market share (drinks sold)", get: (f) => f.soldShare ?? f.share },
 ];
 
 /** §6.5 strategy map with selectable axes. Defaults to cost × brand (not the

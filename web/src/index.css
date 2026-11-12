@@ -1,108 +1,160 @@
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────────────────────────
-   DRINK WARS — reskinned to the EDITORIAL prototype (EB Garamond + brushed
-   metal), replacing the "Tap House Tycoon" glossy skin.
+   DRINK WARS — "Control Room Glass" (design: the Drink Wars Classroom Design canvas,
+   page "Control Room Glass", Direction 3: instruments behind glass, lit from the plant
+   floor). Replaces the editorial EB Garamond skin (tag v3-stable has it).
 
-   Every token NAME, class NAME and mode mechanism is preserved, so NO
-   component file changes — this file alone re-skins the whole app. Canonical
-   source: design_handoff_drinkwars/index.css. The ONLY app-specific additions
-   beyond the handoff are the .dwflow / .dwslide animations at the very bottom
-   (used by CityView's trade-flow arcs + distribution drawer).
+   Every token NAME, class NAME and mode mechanism is preserved, so components need no
+   changes: this file re-skins the app. data-mode="foolscap" = LIGHT (the default),
+   data-mode="sectional" / "night" = DARK, exactly as before.
 
-   Companion: the font <link> in web/index.html loads EB Garamond + IBM Plex
-   Sans; <html data-mode="foolscap"> makes light the default (a stored night choice wins).
+   Glass recipe: a translucent gradient fill + a sheen + a 1px prism edge, all as
+   background LAYERS, with no pseudo-elements, so there are no stacking or positioning
+   side effects. The design's backdrop blur is left out on purpose: it is costly on
+   classroom Chromebooks, it turns every panel into the containing block for fixed
+   children (sheets and dialogs would break), and over a smooth backdrop gradient it
+   changes almost nothing. --color-panel is the design's SOLID surface, so anything that
+   sits over content (sticky bars, sheets, popovers) stays opaque.
    ───────────────────────────────────────────────────────────────────────── */
 @theme {
-  --color-paper:      #ece0c4;
-  --color-panel:      #fcf5e7;
-  --color-panel2:     #e9d7b4;
-  --color-ink:        #2c1d11;
-  --color-inksoft:    #6b513a;
-  --color-faint:      #9a7a52;   /* tertiary label ink (text-faint) */
-  --color-copper:     #c0703a;
-  --color-copperdeep: #9a5024;
-  --color-gold:       #e3a52f;
-  /* Darkened for text contrast (DW-056). The Foolscap greens/reds were chosen as FILL
-     colours; once light mode became the default, the same tokens carried the small figures
-     students actually read — a +14,258 delta at 12.8px measured 2.86:1 against the panel,
-     well under the 4.5:1 floor, and washed out entirely on a classroom projector. The two
-     places hop is a decorative FILL are pinned to the original hex below, so buttons and
-     bars look exactly as before. Reconcile with the design system when convenient. */
-  --color-hop:        #456a22; /* 5.8:1 on panel (was #6fa03a, 2.9:1) */
-  --color-aero:       #1f8c93;
-  --color-clay:       #b5704f;
-  --color-plum:       #7c4f86;
-  --color-brick:      #a83f2c; /* 5.7:1 on panel (was #c0533f, 4.3:1) */
-  --color-line:       #d8c39c;
-  --color-line2:      #c2a877;
+  --color-paper:      #eef1f4;
+  --color-panel:      #f7f9fb;                 /* solid surface */
+  --color-panel2:     rgba(20, 30, 50, 0.07);  /* recessed well: inputs, tracks, chips */
+  --color-ink:        #121821;
+  --color-inksoft:    #50565e;   /* ink2 (72%) flattened, for predictable contrast */
+  --color-faint:      #5b6169;   /* ink3 — 11-09 WCAG pass: ≥4.5:1 on the page and the glass (was #646a73, 4.4) */
+  --color-copper:     #a65a08;   /* amber — 11-09 WCAG pass: small copper text ≥4.5:1 on the page (was #b8640a, 3.8–4.1) */
+  --color-copperdeep: #8f4c06;   /* amber as small text: 6:1 on the light panel */
+  --color-gold:       #e8961f;
+  --color-hop:        #1b7340;   /* ok / positive — 11-09 WCAG pass (was #1e7f45, 4.4) */
+  --color-aero:       #137480;
+  --color-clay:       #a85a2a;
+  --color-plum:       #6a3fc8;
+  --color-brick:      #b3321b;   /* red / negative — 11-09 WCAG pass (was #c4381f, 4.2 on glass) */
+  --color-line:       rgba(20, 30, 50, 0.10);
+  --color-line2:      rgba(20, 30, 50, 0.18);
 
-  --font-display: "EB Garamond", Georgia, serif;
-  --font-body:    "EB Garamond", Georgia, serif;
-  /* historical name "mono": now the IBM Plex Sans label/data face (no monospace).
-     Name kept so charts.tsx var(--font-mono) still resolves. */
-  --font-mono:    "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-body:    "Helvetica Neue", Helvetica, Arial, sans-serif;
+  /* historical name "mono": the label/data face. Kept so charts.tsx var(--font-mono) resolves. */
+  --font-mono:    "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
 
-/* metal-coin + brushed-frame extras (not Tailwind color utilities) */
+/* Glass, glow and legacy extras (not Tailwind colour utilities). LIGHT values here. */
 :root {
-  --tt-wood:   #3a2a1d;
-  --tt-coin-1: #fff2d8;
-  --tt-coin-2: #e6c98c;
-  --tt-coin-3: #c79a4f;
-  --bevel:  rgba(255, 255, 255, 0.6);   /* brushed-metal frame recipe */
-  --metal:  rgba(120, 92, 52, 0.30);
-  --shadow: rgba(40, 25, 8, 0.18);
-  /* DW-077 seat identity (design/round-ux-2026-10 §B): one colour per C-suite chair, light
-     values here, dark below. `--seat-ink` is the text colour ON a seat-coloured block. Read
-     through web/src/lib/seatColors.ts, never by hand. */
+  --backdrop:
+    radial-gradient(900px 520px at 12% 8%, rgba(255, 170, 70, 0.42), transparent 60%),
+    radial-gradient(800px 600px at 88% 30%, rgba(220, 90, 110, 0.26), transparent 60%),
+    radial-gradient(900px 600px at 55% 105%, rgba(110, 150, 220, 0.40), transparent 60%),
+    #eef1f4;
+  --glass:  linear-gradient(160deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.38));
+  --glass2: linear-gradient(160deg, rgba(255, 255, 255, 0.70), rgba(255, 255, 255, 0.30));
+  --gb:  rgba(255, 255, 255, 0.90);                                   /* glass edge */
+  --gs:  inset 0 1px 0 #fff, 0 22px 50px rgba(40, 50, 80, 0.16), 0 2px 6px rgba(40, 50, 80, 0.06);
+  --gs2: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 2px 8px rgba(40, 50, 80, 0.05);
+  --sheen: linear-gradient(118deg, rgba(255, 255, 255, 0.70) 0%, rgba(255, 255, 255, 0.15) 26%, transparent 42%, transparent 80%, rgba(255, 255, 255, 0.30) 100%);
+  --prism: linear-gradient(90deg, transparent, rgba(240, 140, 40, 0.8) 18%, rgba(230, 80, 120, 0.7) 36%, rgba(70, 150, 230, 0.7) 58%, rgba(150, 110, 230, 0.7) 76%, transparent);
+  --well: rgba(20, 30, 50, 0.08);
+  --well-shadow: inset 0 1px 2px rgba(20, 30, 50, 0.12);
+  /* Capacity-vs-demand chart (11-09): validated with the dataviz palette checker on the panel surface —
+     colorblind separation, contrast, lightness band, chroma floor all pass. Light here, dark below. */
+  --input-edge: #7d858f;    /* 11-09 WCAG 1.4.11: a field's edge ≥3:1 against the page and the glass */
+  --chart-own: #b8640a;     /* your first-choice buyers served */
+  --chart-caught: #0a84a8;  /* rivals' sold-out buyers you caught */
+  --chart-lost: #c4381f;    /* turned away: picked you, found you sold out */
+  --chart-stock: #6a3fc8;   /* sold from carried stock (inventory module) */
+  --btn-top: #ffc56a;
+  --btn:     #f2952a;
+  --btn-ink: #1a0d00;
+  --glow-a:  rgba(240, 140, 30, 0.35);
+  /* City map (design pass 2): the HTML around the canvas; CityView.tsx DAY/NIGHT hold the canvas side. */
+  --map-bg: #e9edf1; --map-ink: #1b2430; --map-ink-soft: rgba(27, 36, 48, 0.62); --map-halo: rgba(255, 255, 255, 0.9);
+  --map-lease-edge: #8f4c06; --map-globe-bg: radial-gradient(120% 100% at 50% 20%, #f4f8fb, #d6e2ec);
+  --glow-ok: rgba(30, 127, 69, 0.25);
+  /* legacy extras some components still read */
+  --tt-wood:   #1b222c;
+  --tt-coin-1: #ffffff;
+  --tt-coin-2: #eef1f5;
+  --tt-coin-3: #c3cad4;
+  --bevel:  rgba(255, 255, 255, 0.9);
+  --metal:  rgba(20, 30, 50, 0.08);
+  --shadow: rgba(40, 50, 80, 0.16);
+  /* DW-077 seat identity: one colour per C-suite chair. `--seat-ink` is the text colour ON a
+     seat-coloured block. Read through web/src/lib/seatColors.ts, never by hand. Light values
+     keep their AA-checked darks. */
   --seat-ceo:  #6c4294;
   --seat-cfo:  #3d6b18;
   --seat-coo:  #1d7a83;
   --seat-cmo:  #a65424;
   --seat-chro: #855a08;
-  --seat-ink:  #fdf8ee;
-  /* DW-077 wire tints (§A): the red/amber row + card backgrounds behind a hit / an announced event. */
-  --wire-red:     #a3321f;
-  --wire-redbg:   #f7ddd2;
-  --wire-amber:   #8f5c06;
-  --wire-amberbg: #f6e6bf;
+  --seat-ink:  #ffffff;
+  /* DW-077 wire tints: the red/amber row + card backgrounds behind a hit / an announced event. */
+  --wire-red:     #b3341c;
+  --wire-redbg:   rgba(255, 120, 90, 0.20);
+  --wire-amber:   #8f4c06;
+  --wire-amberbg: rgba(255, 170, 60, 0.22);
 }
 
-/* ── Night shift (dark). `sectional` keeps the existing app mechanism; `night`
-   is an alias so prototype-style data-mode="night" also works. ── */
+/* ── DARK. `sectional` keeps the app's mechanism; `night` is an alias. ── */
 [data-mode="sectional"],
 [data-mode="night"] {
-  --color-paper:      #1c130a;
-  --color-panel:      #2f2114;
-  --color-panel2:     #160f08;
-  --color-ink:        #f4e6c8;
-  --color-inksoft:    #bda079;
-  --color-faint:      #a98a5f;
-  --color-copper:     #e0903f;
-  --color-copperdeep: #f0b94e;
-  --color-gold:       #f0b94e;
-  --color-hop:        #8fc24f;
-  --color-aero:       #34c2c9;
-  --color-clay:       #cf8a5f;
-  --color-plum:       #a888b0;
-  --color-brick:      #d86a52;
-  --color-line:       #3a2a18;
-  --color-line2:      #503b22;
-  --tt-wood:          #120c06;
-  --bevel:  rgba(255, 246, 224, 0.11);
-  --metal:  rgba(232, 212, 170, 0.15);
-  --shadow: rgba(0, 0, 0, 0.55);
-  --seat-ceo:  #bf9ae0;
-  --seat-cfo:  #9bcb5e;
+  --color-paper:      #06080b;
+  --color-panel:      #12161c;
+  --color-panel2:     rgba(0, 0, 0, 0.32);
+  --color-ink:        #f1f4f7;
+  --color-inksoft:    #b5b9bf;
+  --color-faint:      #91959b;
+  --color-copper:     #ffaa3d;
+  --color-copperdeep: #ffc477;
+  --color-gold:       #ffc56a;
+  --color-hop:        #74dd96;
+  --color-aero:       #4cc0cb;
+  --color-clay:       #ee9a4a;
+  --color-plum:       #b994ff;
+  --color-brick:      #ff6a4d;
+  --color-line:       rgba(255, 255, 255, 0.10);
+  --color-line2:      rgba(255, 255, 255, 0.18);
+  --backdrop:
+    radial-gradient(900px 520px at 12% 8%, rgba(240, 150, 40, 0.38), transparent 60%),
+    radial-gradient(800px 600px at 88% 30%, rgba(170, 40, 60, 0.36), transparent 60%),
+    radial-gradient(900px 600px at 55% 105%, rgba(90, 130, 200, 0.34), transparent 60%),
+    #06080b;
+  --glass:  linear-gradient(160deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.035));
+  --glass2: linear-gradient(160deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.03));
+  --gb:  rgba(255, 255, 255, 0.16);
+  --gs:  inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 24px 60px rgba(0, 0, 0, 0.5);
+  --gs2: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --sheen: linear-gradient(118deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.03) 28%, transparent 42%, transparent 78%, rgba(255, 255, 255, 0.05) 100%);
+  --prism: linear-gradient(90deg, transparent, rgba(255, 170, 80, 0.9) 18%, rgba(255, 110, 140, 0.9) 36%, rgba(140, 200, 255, 0.9) 58%, rgba(190, 150, 255, 0.8) 76%, transparent);
+  --well: rgba(0, 0, 0, 0.35);
+  --well-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+  --input-edge: #7a828e;
+  --chart-own: #cc7a1c;
+  --chart-caught: #2a96b8;
+  --chart-lost: #e25236;
+  --chart-stock: #9a72e8;
+  --btn:     #f39a2b;
+  --glow-a:  rgba(255, 160, 50, 0.45);
+  --map-bg: #0b1118; --map-ink: #e8edf2; --map-ink-soft: rgba(232, 237, 242, 0.6); --map-halo: rgba(6, 8, 11, 0.85);
+  --map-lease-edge: #ffc477; --map-globe-bg: radial-gradient(120% 100% at 50% 20%, #15263a, #070b10);
+  --glow-ok: rgba(116, 221, 150, 0.35);
+  --tt-wood:   #05070a;
+  --tt-coin-2: #d9dee5;
+  --tt-coin-3: #8c96a3;
+  --bevel:  rgba(255, 255, 255, 0.22);
+  --metal:  rgba(255, 255, 255, 0.08);
+  --shadow: rgba(0, 0, 0, 0.5);
+  --seat-ceo:  #b896e6;
+  --seat-cfo:  #5fbf52;
   --seat-coo:  #4cc0cb;
   --seat-cmo:  #ee9a4a;
-  --seat-chro: #edbe48;
-  --seat-ink:  #1a120a;
-  --wire-red:     #e8735d;
-  --wire-redbg:   #3b1f16;
-  --wire-amber:   #eab84c;
-  --wire-amberbg: #362a13;
+  --seat-chro: #e8c04c;
+  --seat-ink:  #0b0f14;
+  --wire-red:     #ff6a4d;
+  --wire-redbg:   rgba(255, 90, 60, 0.20);
+  --wire-amber:   #ffaa3d;
+  --wire-amberbg: rgba(255, 170, 60, 0.16);
 }
 
 /* DW-077 takeover hazard stripe (§A): repeating 135° stripes in the event colour. */
@@ -123,43 +175,36 @@ body {
   margin: 0;
   font-family: var(--font-body);
   color: var(--color-ink);
-  /* faint near-vertical brushed striation over the base radial (prototype backdrop) */
-  background:
-    repeating-linear-gradient(93deg, rgba(120,84,40,0.022) 0 2px, rgba(255,255,255,0.016) 2px 5px),
-    radial-gradient(120% 90% at 12% -10%, #fbf2df 0%, var(--color-paper) 55%, #e7d4af 100%) fixed;
+  background: transparent;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-[data-mode="sectional"] body,
-[data-mode="night"] body {
-  background:
-    repeating-linear-gradient(93deg, rgba(120,84,40,0.022) 0 2px, rgba(255,255,255,0.016) 2px 5px),
-    radial-gradient(120% 90% at 12% -10%, #2c1f12 0%, var(--color-paper) 60%, #160f07 100%) fixed;
-}
+/* The plant floor: coloured light behind every pane, held still while the page scrolls. A fixed
+   layer rather than background-attachment: fixed, which iOS Safari ignores (the light would
+   scroll off the top of a long phone page). */
+body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; background: var(--backdrop); }
 
-::selection { background: color-mix(in srgb, var(--color-copper) 30%, var(--color-paper)); color: var(--color-ink); }
+::selection { background: color-mix(in srgb, var(--color-copper) 32%, transparent); color: var(--color-ink); }
 
-/* Numbers / readouts — EB Garamond with tabular LINING figures (NOT mono). */
+/* Numbers / readouts — tabular lining figures. */
 .tnum { font-family: var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
 
-/* Display headings / HUD titles — EB Garamond, MIXED CASE (no uppercase). */
-.display  { font-family: var(--font-display); font-weight: 700; letter-spacing: -0.01em; line-height: 1.05; color: var(--color-ink); }
-.wordmark { font-family: var(--font-display); font-weight: 800; letter-spacing: -0.01em; line-height: 1.0; }
+/* Display headings / HUD titles — heavy, tight, mixed case. */
+.display  { font-family: var(--font-display); font-weight: 800; letter-spacing: -0.02em; line-height: 1.05; color: var(--color-ink); }
+.wordmark { font-family: var(--font-display); font-weight: 800; letter-spacing: -0.02em; line-height: 1.0; }
 
-/* Eyebrow — IBM Plex Sans caps label (font-mono now resolves to the sans). */
-.eyebrow { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: color-mix(in srgb, var(--color-inksoft) 72%, var(--color-paper)); }
+/* Eyebrow — tracked caps label. */
+.eyebrow { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-inksoft); }
 
-/* Card = brushed-metal panel: hairline + outer metal ring + top bevel glint +
-   soft shadow. Var-based, so it works in both modes with no override. */
+/* Card = a pane of glass: prism edge + sheen + translucent fill, glass edge, deep shadow. */
 .card {
-  background: var(--color-panel);
-  border: 1px solid var(--color-line);
-  border-radius: 15px;
-  box-shadow: inset 0 1px 0 var(--bevel), 0 0 0 1px var(--metal), 0 16px 34px var(--shadow);
+  background: var(--prism) top center / 100% 1px no-repeat, var(--sheen), var(--glass);
+  border: 1px solid var(--gb);
+  border-radius: 18px;
+  box-shadow: var(--gs);
 }
-/* (no separate [data-mode="sectional"] .card override needed — vars handle it) */
 
-/* Inputs — recessed inset well, EB Garamond lining figures. */
+/* Inputs — a recessed well; amber glow on focus. */
 input[type="number"],
 input[type="text"],
 /* an <input> with no type IS a text input — the join/claim boxes rendered borderless; ones that
@@ -168,20 +213,18 @@ input:not([type]):not([class~="border"]),
 textarea {
   font-family: var(--font-body);
   font-variant-numeric: tabular-nums lining-nums;
-  background: var(--color-panel2);
-  border: 1px solid var(--color-line2);
+  background: var(--well);
+  border: 1px solid var(--input-edge);
   border-radius: 10px;
   color: var(--color-ink);
   padding: 0.4rem 0.6rem;
-  box-shadow: inset 0 2px 4px rgba(60, 40, 15, 0.18);
+  box-shadow: var(--well-shadow);
 }
 input:focus,
-textarea:focus { outline: 2px solid color-mix(in srgb, var(--color-copper) 60%, transparent); outline-offset: 1px; }
+textarea:focus { outline: 2px solid color-mix(in srgb, var(--color-copper) 70%, transparent); outline-offset: 1px; box-shadow: var(--well-shadow), 0 0 14px var(--glow-a); }
 
-/* Range slider — inset track, metal-coin thumb. The ELEMENT is the touch target and the
-   TRACK is the visual: the element used to be 9px tall, which was also its entire hit area,
-   and a 9px target is unusable with a finger (six of these sit on the Decide form). The track
-   pseudo-element keeps the original 9px look while the element itself is finger-sized. */
+/* Range slider — the ELEMENT is the finger-sized touch target, the TRACK is the 9px visual
+   (six of these sit on the Decide form). Glass knob with an amber glow. */
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
@@ -192,14 +235,14 @@ input[type="range"] {
 input[type="range"]::-webkit-slider-runnable-track {
   height: 9px;
   border-radius: 6px;
-  background: var(--color-panel2);
-  box-shadow: inset 0 1px 2px rgba(60, 40, 15, 0.25);
+  background: var(--well);
+  box-shadow: var(--well-shadow);
 }
 input[type="range"]::-moz-range-track {
   height: 9px;
   border-radius: 6px;
-  background: var(--color-panel2);
-  box-shadow: inset 0 1px 2px rgba(60, 40, 15, 0.25);
+  background: var(--well);
+  box-shadow: var(--well-shadow);
 }
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -208,8 +251,8 @@ input[type="range"]::-webkit-slider-thumb {
   margin-top: -4.5px; /* centre the 18px thumb on the 9px track */
   border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, var(--tt-coin-1), var(--tt-coin-2) 60%, var(--tt-coin-3));
-  border: 1px solid #b8902f;
-  box-shadow: inset 0 1px 2px #fff4d8, 0 2px 4px rgba(120, 80, 20, 0.3);
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  box-shadow: inset 0 1px 1px #fff, 0 2px 6px rgba(0, 0, 0, 0.3), 0 0 10px var(--glow-a);
   cursor: pointer;
 }
 input[type="range"]::-moz-range-thumb {
@@ -217,68 +260,79 @@ input[type="range"]::-moz-range-thumb {
   height: 18px;
   border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, var(--tt-coin-1), var(--tt-coin-2) 60%, var(--tt-coin-3));
-  border: 1px solid #b8902f;
-  box-shadow: inset 0 1px 2px #fff4d8, 0 2px 4px rgba(120, 80, 20, 0.3);
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  box-shadow: inset 0 1px 1px #fff, 0 2px 6px rgba(0, 0, 0, 0.3), 0 0 10px var(--glow-a);
   cursor: pointer;
 }
 
-/* Lucide (mode-toggle icon) — hairline-geometric per the editorial brief. */
-.lucide { stroke-linecap: square; stroke-linejoin: miter; stroke-width: 1.25px; }
+/* Lucide icons — hairline-geometric. */
+.lucide { stroke-linecap: square; stroke-linejoin: miter; stroke-width: 1.5px; }
 
 /* ===== Component utilities (names preserved; reskinned) ===== */
-.tt-panel { background: var(--color-panel); border: 1px solid var(--color-line); border-radius: 15px; box-shadow: inset 0 1px 0 var(--bevel), 0 0 0 1px var(--metal), 0 16px 34px var(--shadow); }
-.tt-inset { background: var(--color-panel2); border: 1px solid var(--color-line2); border-radius: 10px; box-shadow: inset 0 2px 4px rgba(60,40,15,0.18); }
+.tt-panel {
+  background: var(--prism) top center / 100% 1px no-repeat, var(--sheen), var(--glass);
+  border: 1px solid var(--gb);
+  border-radius: 18px;
+  box-shadow: var(--gs);
+}
+/* A pane inside a pane: lighter glass, no deep shadow. */
+.tt-inset { background: var(--glass2); border: 1px solid var(--gb); border-radius: 12px; box-shadow: var(--gs2); }
 
-/* Buttons — flatter than the tycoon gloss; IBM Plex caps label. Keep a quiet
-   gradient for weight but drop the heavy triple-bevel. */
+/* Buttons — the design's amber control: light-to-amber gradient, dark ink, a warm glow. */
 .tt-btn {
   font-family: var(--font-mono);
   text-transform: uppercase;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  font-weight: 800;
+  letter-spacing: 0.06em;
   font-size: 11px;
   padding: 10px 18px;
-  color: #3a2206;
-  background: linear-gradient(var(--color-gold), var(--color-copper));
-  border: 1px solid var(--color-copperdeep);
-  border-radius: 10px;
+  color: var(--btn-ink);
+  background: linear-gradient(180deg, var(--btn-top), var(--btn));
+  border: 1px solid rgba(120, 60, 0, 0.18);
+  border-radius: 12px;
   cursor: pointer;
-  box-shadow: inset 0 1px 0 var(--bevel), 0 1px 2px var(--shadow);
-  transition: opacity 0.12s ease, transform 0.06s ease;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px var(--glow-a);
+  transition: opacity 0.12s ease, transform 0.06s ease, box-shadow 0.12s ease;
 }
-.tt-btn:hover  { opacity: 0.95; }
-.tt-btn:active { transform: translateY(1px); opacity: 0.9; }
-.tt-btn--go { background: linear-gradient(#7fb343, #6fa03a); border-color: #4c7820; color: #142a06; box-shadow: inset 0 1px 0 rgba(214,243,163,0.6), 0 1px 2px var(--shadow); }
+.tt-btn:hover  { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 8px 24px var(--glow-a); }
+.tt-btn:active { transform: translateY(1px); opacity: 0.92; }
+/* The commit/submit control: the same amber, lit harder (the design's single primary). */
+.tt-btn--go { background: linear-gradient(180deg, var(--btn-top), var(--btn)); color: var(--btn-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 8px 22px var(--glow-a); }
 
 .tt-coin {
   display: grid;
   place-items: center;
   border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, var(--tt-coin-1), var(--tt-coin-2) 60%, var(--tt-coin-3));
-  border: 1px solid #b8902f;
-  box-shadow: inset 0 1px 2px #fff4d8, 0 2px 4px rgba(120,80,20,0.25);
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  box-shadow: inset 0 1px 2px #fff, 0 2px 6px rgba(0, 0, 0, 0.25);
 }
 
-/* Tabs — IBM Plex caps pill (the DECIDE / REVIEW / tab-bar look). */
-.tt-tab { display: flex; align-items: center; gap: 9px; padding: 8px 13px; border-radius: 999px; border: 1px solid transparent; font-family: var(--font-mono); font-weight: 600; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-inksoft); cursor: pointer; }
-.tt-tab.is-active { background: var(--color-panel); border-color: var(--color-line); color: var(--color-copperdeep); box-shadow: inset 0 1px 0 var(--bevel), 0 0 0 1px var(--metal); }
+/* Tabs — tracked caps; the active tab is a lit white key (DECIDE / REVIEW / MAP). */
+/* The tab bar (design pass 2): a glass pill that rides pinned at the top. Its base is the SOLID panel, so
+   the page never reads through it while it floats over content; the sheen + prism sit on top. */
+.tt-tabbar { padding: 5px; border-radius: 999px; border: 1px solid var(--gb); background: var(--prism) top center / 100% 1px no-repeat, var(--sheen), var(--color-panel); box-shadow: var(--gs); }
+.tt-tab { display: flex; align-items: center; gap: 9px; padding: 8px 16px; border-radius: 999px; border: 1px solid transparent; font-family: var(--font-mono); font-weight: 700; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-inksoft); cursor: pointer; }
+.tt-tab.is-active { background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.7)); border-color: rgba(255, 255, 255, 0.9); color: #0b0d10; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), inset 0 1px 0 #fff; }
+@media (max-width: 639px) { .tt-tab svg { display: none; } .tt-tab { padding: 8px 12px; letter-spacing: 0.1em; } } /* three tabs fit a 390px phone */
 
-.tt-bar { height: 9px; border-radius: 6px; background: var(--color-panel2); overflow: hidden; box-shadow: inset 0 1px 2px rgba(60,40,15,0.25); }
-.tt-bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--color-gold), var(--color-copper)); }
-.tt-bar.is-craft > span  { background: linear-gradient(90deg, #8fbf4a, #6fa03a); }
-.tt-bar.is-nonalc > span { background: linear-gradient(90deg, #34c2c9, var(--color-aero)); }
+/* Bars — a dark well with a glowing fill (no overflow clip, so the glow shows). */
+.tt-bar { height: 9px; border-radius: 6px; background: var(--well); box-shadow: var(--well-shadow); }
+.tt-bar > span { display: block; height: 100%; border-radius: 6px; background: linear-gradient(90deg, #ffcf86, var(--color-copper)); box-shadow: 0 0 12px var(--glow-a); }
+.tt-bar.is-craft > span  { background: linear-gradient(90deg, #a6f0bd, var(--color-hop)); box-shadow: 0 0 12px var(--glow-ok); }
+.tt-bar.is-nonalc > span { background: linear-gradient(90deg, #9fe6ec, var(--color-aero)); box-shadow: none; }
 
-.tt-chip  { font-family: var(--font-mono); font-size: 11px; padding: 3px 9px; border-radius: 999px; background: var(--color-panel2); border: 1px solid var(--color-line2); color: var(--color-inksoft); }
-.tt-label { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: color-mix(in srgb, var(--color-inksoft) 72%, var(--color-paper)); }
-.tt-display { font-family: var(--font-display); font-weight: 700; line-height: 1.1; letter-spacing: -0.01em; }
-.tt-num   { font-family: var(--font-body); font-weight: 600; font-variant-numeric: tabular-nums lining-nums; }
+.tt-chip  { font-family: var(--font-mono); font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--glass2); border: 1px solid var(--color-line2); color: var(--color-inksoft); }
+.tt-label { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-inksoft); }
+.tt-display { font-family: var(--font-display); font-weight: 800; line-height: 1.1; letter-spacing: -0.02em; }
+.tt-num   { font-family: var(--font-body); font-weight: 700; font-variant-numeric: tabular-nums lining-nums; }
 
 /* Entry fade (respects reduced-motion). */
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .rise { animation: rise 0.48s cubic-bezier(0.25, 0.1, 0.25, 1) both; }
 @media (prefers-reduced-motion: reduce) { .rise { animation: none; } }
 
-/* ===== App-specific additions (beyond the handoff canonical) ===== */
+/* ===== App-specific additions ===== */
 /* Trade-lane flow — marching dashes in the direction beer moves (CityView). */
 @keyframes dwflow { to { stroke-dashoffset: -16; } }
 .dwflow { animation: dwflow 0.9s linear infinite; }

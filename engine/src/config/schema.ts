@@ -198,6 +198,13 @@ export function validateConfig(c: Config): Config {
 
   // information
   nonneg(c.information?.cost, "information.cost");
+  req(c.information?.public_prices == null || typeof c.information.public_prices === "boolean", "information.public_prices must be true or false");
+  if (c.information?.reports != null) {
+    for (const k of ["survey_sd", "analyst_sd"] as const) {
+      const v = c.information.reports[k];
+      req(isNum(v) && v >= 0 && v <= 0.5, `information.reports.${k} must be between 0 and 0.5 (got ${String(v)})`);
+    }
+  }
 
   // modules (optional; absent ⇒ all-off / legacy). Validate the blocks that carry
   // real parameters only when their module object is present.

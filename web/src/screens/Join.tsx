@@ -246,7 +246,7 @@ export function Join({ onJoined, onBack }: { onJoined: (c: StudentClient) => voi
             </div>
           </div>
           <div className="flex items-center gap-3 rounded-xl border border-line2 bg-panel p-3">
-            <span className="grid h-11 w-11 flex-none place-items-center rounded-[12px]" style={{ background: color, border: "2px solid #fff4e0", boxShadow: `0 0 0 1px ${color}` }}><Emblem id={emblem} size={26} color="#fff" /></span>
+            <span className="grid h-11 w-11 flex-none place-items-center rounded-[12px]" style={{ background: color, border: "2px solid #fff", boxShadow: `0 0 0 1px ${color}` }}><Emblem id={emblem} size={26} color="#fff" /></span>
             <div className="min-w-0"><div className="display truncate text-lg font-extrabold uppercase leading-none text-ink">{display}</div><div className="text-[0.72rem] text-inksoft">how your sites read on the board</div></div>
             <span className="flex-1" />
             <FacilityChip type="brewery_large" color={color} size={28} mine />

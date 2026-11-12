@@ -17,15 +17,45 @@ import type { Config } from "drinkwars-engine";
 import type { GameView, MarketView, MarketSegmentStanding, MarketLot } from "../game/controller.js";
 import type { CityActions, CityBuildOrder } from "../game/cityActions.js";
 import { buildKey, dedupeBuilds, marketPresenceFrom, overruledBuilds, teamBuildSource, teamEntryNote, teammateBuilds, type LostBuild } from "../game/cityActions.js";
-import { SEG_LABEL, SEG_CHARACTER, DISTRICT_BEST, MARKET_META, ZONE_OF, ZONE_TONE, FAC_TAG, FAC_NOTE, fmt, rankDistrictsForType, districtFitScore } from "../labels.js";
+import { SEG_LABEL, SEG_CHARACTER, DISTRICT_TRAITS, MARKET_META, ZONE_OF, ZONE_TONE, FAC_TAG, FAC_NOTE, fmt } from "../labels.js";
 import { firmColor } from "../lib/teamColors.js";
 import { FacilityChip, flowBadge } from "./FacilityGlyph.js";
 import { AnchoredPopover } from "./AnchoredPopover.js";
+import { useMode } from "./ModeToggle.js";
+import { crowdRead, type CrowdRead, type CrowdSite } from "../lib/crowd.js";
 import { WORLD_LAND_PATH } from "./worldland.js";
 
 // ───────────────────────── constants (Tap House hexes for canvas drawing) ─────────────────────────
 const ISO = { N: 16, TW: 30, TH: 15, OX: 500, OY: 108 };
-const PAL = { mapbg: "#e7d8b2", lot: "#dfcfa3", road: "#cdbd95", roadMaj: "#bca673", park: "#bccf86", tree: "#7f9f48", water: "#8fb6bf", waterHi: "#abccd1" };
+// Control Room Glass (design pass 2): two map palettes, picked from <html data-mode> at paint time — a cool
+// daylight city (light) and a night city under the dark glass (dark). Canvas can't read CSS vars, so the values
+// live here; `--map-bg` in index.css mirrors `mapbg` for the HTML around the canvas.
+type Tone3 = { roof: string; l: string; r: string };
+interface MapPal {
+  mapbg: string; lot: string; road: string; roadMaj: string; park: string; tree: string; water: string; waterHi: string;
+  tones: Record<"cool" | "warm" | "brick" | "ware", Tone3>; edge: string; leaseFill: string; leaseEdge: string;
+  zone: Record<string, string>; zoneRoad: string; cellEdge: string; frame1: string; frame2: string;
+  compassBg: string; compassRing: string; needle: string; ink: string;
+  globe: { g0: string; g1: string; g2: string; grid: string; land: string; rim: string; arc: string; halo: string; entered: string; exportC: string; other: string; pinEdge: string; ring: string; labelHalo: string; labelInk: string };
+}
+const DAY: MapPal = {
+  mapbg: "#e9edf1", lot: "#dfe4ea", road: "#cdd4dc", roadMaj: "#b8c2cd", park: "#cfe2cf", tree: "#6c9a72", water: "#a8c8dc", waterHi: "#c2dbea",
+  tones: { cool: { roof: "#f4f6f8", l: "#d5dbe2", r: "#b9c1cb" }, warm: { roof: "#f6f1ea", l: "#ddd3c5", r: "#c3b7a6" }, brick: { roof: "#f1e6e2", l: "#d9c4bd", r: "#bfa69e" }, ware: { roof: "#eceef0", l: "#cfd3d8", r: "#b4bac1" } },
+  edge: "rgba(30,40,60,0.16)", leaseFill: "rgba(242,149,42,0.30)", leaseEdge: "rgba(143,76,6,0.6)",
+  zone: { core: "#d08a4c", arts: "#d9a64e", industrial: "#7f93b0", garden: "#8fb06a", waterfront: "#5fa6ad" }, zoneRoad: "#d3d9e0", cellEdge: "rgba(30,40,60,0.14)",
+  frame1: "rgba(30,40,60,0.18)", frame2: "rgba(30,40,60,0.08)", compassBg: "rgba(255,255,255,0.7)", compassRing: "rgba(30,40,60,0.45)", needle: "#c4381f", ink: "#121821",
+  globe: { g0: "#e4eef5", g1: "#bfd4e3", g2: "#9db9cc", grid: "rgba(30,60,90,0.12)", land: "#58768c", rim: "rgba(30,60,90,0.35)", arc: "rgba(184,100,10,0.6)", halo: "rgba(242,149,42,0.16)", entered: "#d9731f", exportC: "#137480", other: "#8a94a0", pinEdge: "#ffffff", ring: "rgba(217,115,31,0.45)", labelHalo: "rgba(255,255,255,0.92)", labelInk: "#121821" },
+};
+const NIGHT: MapPal = {
+  mapbg: "#0b1118", lot: "#131b26", road: "#1f2a38", roadMaj: "#2e3e52", park: "#12291d", tree: "#33764c", water: "#0a2233", waterHi: "#123a52",
+  tones: { cool: { roof: "#3b4859", l: "#243040", r: "#18212c" }, warm: { roof: "#4b4134", l: "#30281f", r: "#211c16" }, brick: { roof: "#4c3636", l: "#302222", r: "#221818" }, ware: { roof: "#3e434b", l: "#272b31", r: "#1b1e23" } },
+  edge: "rgba(255,255,255,0.07)", leaseFill: "rgba(255,170,61,0.22)", leaseEdge: "rgba(255,196,119,0.7)",
+  zone: { core: "#d0843f", arts: "#d8a548", industrial: "#6f86a8", garden: "#5f9a52", waterfront: "#3f9aa3" }, zoneRoad: "#2a3442", cellEdge: "rgba(0,0,0,0.35)",
+  frame1: "rgba(255,255,255,0.14)", frame2: "rgba(255,255,255,0.06)", compassBg: "rgba(10,14,20,0.6)", compassRing: "rgba(255,255,255,0.35)", needle: "#ffaa3d", ink: "#f1f4f7",
+  globe: { g0: "#1d3a57", g1: "#122739", g2: "#0a1724", grid: "rgba(140,200,255,0.10)", land: "#8fb6d0", rim: "rgba(140,200,255,0.35)", arc: "rgba(255,170,61,0.7)", halo: "rgba(255,160,50,0.16)", entered: "#ffaa3d", exportC: "#4cc0cb", other: "#7d8794", pinEdge: "#0b0f14", ring: "rgba(255,170,61,0.5)", labelHalo: "rgba(6,8,11,0.85)", labelInk: "#f1f4f7" },
+};
+const isNight = () => typeof document !== "undefined" && /^(sectional|night)$/.test(document.documentElement.getAttribute("data-mode") ?? "");
+const pal = (): MapPal => (isNight() ? NIGHT : DAY);
 // Your-site building tone now derives from the player's chosen house colour (mineTone in drawCity).
 const ARCH_OF: Record<string, string> = { downtown: "core", riverside: "arts", industrial: "industrial", suburban: "garden" };
 const PROF: Record<string, { min: number; max: number; tone: string; park: number }> = {
@@ -35,13 +65,7 @@ const PROF: Record<string, { min: number; max: number; tone: string; park: numbe
   garden: { min: 11, max: 24, tone: "warm", park: 0.22 },
   waterfront: { min: 18, max: 36, tone: "warm", park: 0.12 },
 };
-const TONES: Record<string, { roof: string; l: string; r: string }> = {
-  cool: { roof: "#e7e0cd", l: "#cbc6ad", r: "#aca78b" },
-  warm: { roof: "#ece0bf", l: "#cdbb8e", r: "#b29a68" },
-  brick: { roof: "#ddc6a0", l: "#c2a675", r: "#a6885a" },
-  ware: { roof: "#d8c9a2", l: "#bcab80", r: "#9f895d" },
-};
-const ZONE_COLOR: Record<string, string> = { core: "#cf8f54", arts: "#d9a64e", industrial: "#7f93b0", garden: "#8fb06a", waterfront: "#5fa6ad" };
+
 
 // ───────────────────────── tiny helpers ─────────────────────────
 const rng = (seed: number) => {
@@ -86,7 +110,7 @@ const trafficDots = (t: number): string => { const n = Math.round(t * 4); return
 const FPROF: Record<string, number> = { taproom: 26, brewery_small: 30, canning_line: 34, brewery_large: 44 };
 
 // ───────────────────────── city model + procedural plan ─────────────────────────
-interface DistrictModel { key: string; label: string; arch: string; kind: string; rent: number; out: number; brand: number; best: string }
+interface DistrictModel { key: string; label: string; arch: string; kind: string; rent: number; out: number; brand: number; traits: string }
 interface MineModel {
   id: string; type: string; district: string; lot?: string; active: boolean; pending: boolean;
   // DW-082d — a queued build: its order, whether this seat may withdraw it, and whether a teammate's word dropped it from the plan
@@ -98,14 +122,18 @@ interface CityModel {
   geo: [number, number]; coast: "right" | "bottom" | null; seed: number; roadEvery: number;
   districts: DistrictModel[]; mine: MineModel[]; rivals: RivalModel[]; segments: MarketSegmentStanding[]; lots: MarketLot[];
   catchment?: { grid: number; radius: number; lambda: number; self_weight: number; beta_loc: number };
+  /** 11-09: rival breweries selling in this city (sites ∪ last round's shelves), for the honest siting read. */
+  rivalIds: string[];
+  retailTypes: string[]; // facility types with a retail draw — the only ones that crowd (engine geography.ts)
 }
+const retailTypesOf = (types: { id: string; retail_draw?: number }[] | undefined): string[] => (types ?? []).filter((t) => (t.retail_draw ?? 0) > 0).map((t) => t.id);
 interface Cell { cx: number; cy: number; kind: string; di: number; arch: string; h: number; t2: number; traffic: number; major: boolean; fac?: MineModel; rival?: RivalModel }
 interface Plan {
   cells: Cell[];
   districts: { key: string; label: string; arch: string; cx: number; cy: number; traffic: number }[];
   facilities: { id: string; cx: number; cy: number; h: number; tag: string; type: string; district: string; active: boolean; pending: boolean }[];
   rivals: { cx: number; cy: number; h: number; firmId: string; name: string; type: string; district: string }[];
-  leases: { cx: number; cy: number; district: string; lot: string; crowd: number }[];
+  leases: { cx: number; cy: number; district: string; lot: string; crowd: number; read: CrowdRead }[];
 }
 
 /** extraBuilds: builds already in the round decision but not in cityActions — e.g. the
@@ -116,7 +144,7 @@ function buildCity(view: GameView, market: MarketView, actions: CityActions, ext
   const dCfg = view.modules?.facilities?.districts ?? [];
   const districts: DistrictModel[] = dCfg.map((d) => ({
     key: d.id, label: d.label, arch: ARCH_OF[d.kind] ?? "arts", kind: d.kind,
-    rent: d.rent_mult, out: d.capacity_mult ?? 1, brand: d.brand_boost ?? 0, best: DISTRICT_BEST[d.id] ?? d.blurb ?? "",
+    rent: d.rent_mult, out: d.capacity_mult ?? 1, brand: d.brand_boost ?? 0, traits: DISTRICT_TRAITS[d.id] ?? d.blurb ?? "",
   }));
   const fallbackDistrict = districts[0]?.key ?? "downtown";
   const real: MineModel[] = market.yourSites.map((s) => ({
@@ -149,7 +177,31 @@ function buildCity(view: GameView, market: MarketView, actions: CityActions, ext
     geo: meta.geo, coast: meta.coast, seed: meta.seed, roadEvery: 4,
     districts, mine: [...real, ...queued], rivals, segments: market.segments, lots: market.lots ?? [],
     catchment: view.modules?.facilities?.catchment,
+    rivalIds: [...new Set([...rivals.map((r) => r.firmId), ...(market.sellers ?? [])])],
+    retailTypes: retailTypesOf(view.modules?.facilities?.types),
   };
+}
+
+/** 11-09: who competes in a city, from public facts only — rivals' sites (by district) and whose beer was
+ *  on its shelves last round. Shown before entry, so a firm sees the field it would walk into. */
+export interface CityRival { firmId: string; name: string; sites: number; districts: string[]; shipsIn: boolean }
+function cityRivals(c: CityModel, names: Record<string, string>): CityRival[] {
+  const by = new Map<string, CityRival>();
+  for (const r of c.rivals) {
+    const e = by.get(r.firmId) ?? { firmId: r.firmId, name: names[r.firmId] ?? r.name, sites: 0, districts: [], shipsIn: false };
+    e.sites++;
+    const label = c.districts.find((d) => d.key === r.district)?.label ?? r.district;
+    if (!e.districts.includes(label)) e.districts.push(label);
+    by.set(r.firmId, e);
+  }
+  for (const id of c.rivalIds) if (!by.has(id)) by.set(id, { firmId: id, name: names[id] ?? id, sites: 0, districts: [], shipsIn: true });
+  return [...by.values()].sort((a, b) => b.sites - a.sites || a.name.localeCompare(b.name));
+}
+
+/** The sited facilities the crowd read weighs — yours and rivals', each flagged retail by type. */
+function citySites(c: CityModel, mine: { x: number; y: number; type: string; district: string }[], rivals: { x: number; y: number; type: string; district: string }[]): CrowdSite[] {
+  const retail = new Set(c.retailTypes);
+  return [...mine.map((f) => ({ ...f, own: true, retail: retail.has(f.type) })), ...rivals.map((r) => ({ ...r, own: false, retail: retail.has(r.type) }))];
 }
 
 function cityPlan(c: CityModel): Plan {
@@ -199,18 +251,17 @@ function cityPlan(c: CityModel): Plan {
     rivals.push({ cx, cy, h: 34, firmId: rv.firmId, name: rv.name, type: rv.type, district: rv.district });
   });
 
-  // Available parcels = unlocked + unoccupied (built/queued/rival). Crowd preview = competing
-  // footprint within the catchment radius (rivals full weight, your own softer) — the "find the
-  // right location" hint: low crowd = blue ocean, high = saturated.
+  // Available parcels = unlocked + unoccupied (built/queued/rival), each with the honest siting read
+  // (lib/crowd.ts, 11-09): the engine's own catchment over retail sites, floored at "Some competition"
+  // whenever any rival sells in the city.
   const occupied = new Set<string>(); c.mine.forEach((f) => f.lot && occupied.add(f.lot)); c.rivals.forEach((r) => r.lot && occupied.add(r.lot));
-  const sited = [...facilities.map((f) => ({ x: f.cx, y: f.cy, own: true })), ...rivals.map((r) => ({ x: r.cx, y: r.cy, own: false }))];
-  const radius = c.catchment?.radius ?? 5, selfW = c.catchment?.self_weight ?? 0.5;
-  const crowdAt = (x: number, y: number): number => sited.reduce((a, s) => { const k = Math.max(0, 1 - Math.hypot(x - s.x, y - s.y) / radius); return a + (k > 0 ? k * (s.own ? selfW : 1) : 0); }, 0);
+  const sited = citySites(c, facilities.map((f) => ({ x: f.cx, y: f.cy, type: f.type, district: f.district })), rivals.map((r) => ({ x: r.cx, y: r.cy, type: r.type, district: r.district })));
   const leases: Plan["leases"] = [];
   for (const L of c.lots) {
     if (!L.unlocked || occupied.has(L.id)) continue;
     const cell = cellAt(L.x, L.y); if (cell) cell.kind = "lease";
-    leases.push({ cx: L.x, cy: L.y, district: L.district, lot: L.id, crowd: crowdAt(L.x, L.y) });
+    const read = crowdRead({ x: L.x, y: L.y, district: L.district }, sited, c.catchment, c.rivalIds.length);
+    leases.push({ cx: L.x, cy: L.y, district: L.district, lot: L.id, crowd: read.local, read });
   }
 
   const districts = dr.map((d) => {
@@ -241,7 +292,19 @@ function building(ctx: CanvasRenderingContext2D, cx: number, cy: number, h: numb
   ctx.fillStyle = t.l; ctx.beginPath(); ctx.moveTo(bl[0], bl[1]); ctx.lineTo(bb[0], bb[1]); ctx.lineTo(bb[0], bb[1] - h); ctx.lineTo(bl[0], bl[1] - h); ctx.closePath(); ctx.fill();
   ctx.fillStyle = t.r; ctx.beginPath(); ctx.moveTo(br[0], br[1]); ctx.lineTo(bb[0], bb[1]); ctx.lineTo(bb[0], bb[1] - h); ctx.lineTo(br[0], br[1] - h); ctx.closePath(); ctx.fill();
   ctx.fillStyle = t.roof; ctx.beginPath(); ctx.moveTo(bt[0], bt[1] - h); ctx.lineTo(br[0], br[1] - h); ctx.lineTo(bb[0], bb[1] - h); ctx.lineTo(bl[0], bl[1] - h); ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = "rgba(70,48,18,0.22)"; ctx.lineWidth = 0.6;
+  // Night: a few lit windows on the taller faces (deterministic per lot, so a redraw never flickers).
+  if (isNight() && h > 18) {
+    let k = ((cx * 73856093) ^ (cy * 19349663)) >>> 0;
+    const rnd = () => { k = (k * 1103515245 + 12345) >>> 0; return (k >>> 8) / 16777216; };
+    ctx.fillStyle = "rgba(255,196,119,0.55)";
+    for (let i = 0, n = Math.min(6, Math.floor(h / 9)); i < n; i++) {
+      if (rnd() < 0.45) continue;
+      const left = rnd() < 0.5, f = 0.2 + rnd() * 0.6, up = 5 + rnd() * (h - 10);
+      const x = left ? bl[0] + (bb[0] - bl[0]) * f : br[0] + (bb[0] - br[0]) * f, y = (left ? bl[1] + (bb[1] - bl[1]) * f : br[1] + (bb[1] - br[1]) * f) - up;
+      ctx.fillRect(x - 1, y - 1.5, 2, 3);
+    }
+  }
+  ctx.strokeStyle = pal().edge; ctx.lineWidth = 0.6;
   ctx.beginPath(); ctx.moveTo(bb[0], bb[1]); ctx.lineTo(bb[0], bb[1] - h); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(bt[0], bt[1] - h); ctx.lineTo(br[0], br[1] - h); ctx.lineTo(bb[0], bb[1] - h); ctx.lineTo(bl[0], bl[1] - h); ctx.closePath(); ctx.stroke();
 }
@@ -258,34 +321,35 @@ function drawCity(cv: HTMLCanvasElement, plan: Plan, layer: string, youId: strin
   const mineTone = toneFromColor(selfColor);
   const mineOutline = shade(resolveColor(selfColor), -0.45);
   ctx.setTransform(cv.width / 1000, 0, 0, cv.height / 680, 0, 0);
+  const PAL = pal();
   ctx.fillStyle = PAL.mapbg; ctx.fillRect(0, 0, 1000, 680);
   for (const cell of plan.cells) {
     if (cell.kind === "water") { diamond(ctx, cell.cx, cell.cy, PAL.water, 1.001); if (cell.t2 > 0.62) diamond(ctx, cell.cx, cell.cy, PAL.waterHi, 0.45); continue; }
     if (layer === "map") {
       if (cell.kind === "road") { diamond(ctx, cell.cx, cell.cy, cell.major ? PAL.roadMaj : PAL.road, 1.001); continue; }
       if (cell.kind === "park") { diamond(ctx, cell.cx, cell.cy, PAL.park, 1.001); if (cell.t2 > 0.4) { const [X, Y] = isoXY(cell.cx, cell.cy); ctx.fillStyle = PAL.tree; for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(X - 8 + i * 8, Y + ISO.TH - 2, 2.4, 0, 7); ctx.fill(); } } continue; }
-      if (cell.kind === "lease") { diamond(ctx, cell.cx, cell.cy, PAL.lot, 1.001); diamond(ctx, cell.cx, cell.cy, "rgba(224,165,47,0.32)", 0.84, "rgba(154,80,36,0.5)"); continue; }
+      if (cell.kind === "lease") { diamond(ctx, cell.cx, cell.cy, PAL.lot, 1.001); diamond(ctx, cell.cx, cell.cy, PAL.leaseFill, 0.84, PAL.leaseEdge); continue; }
       diamond(ctx, cell.cx, cell.cy, PAL.lot, 1.001);
-      const tone = cell.kind === "mine" ? mineTone : cell.kind === "rival" && cell.rival ? rivalTone(cell.rival.firmId) : TONES[(PROF[cell.arch] || PROF.arts).tone];
+      const tone = cell.kind === "mine" ? mineTone : cell.kind === "rival" && cell.rival ? rivalTone(cell.rival.firmId) : PAL.tones[(PROF[cell.arch] || PROF.arts).tone as keyof MapPal["tones"]];
       building(ctx, cell.cx, cell.cy, cell.h, tone);
     } else {
       let col: string;
-      if (cell.kind === "road") col = layer === "traffic" ? trafficColor(cell.traffic) : "#d8cba6";
-      else if (cell.kind === "park") col = layer === "traffic" ? trafficColor(cell.traffic * 0.6) : ZONE_COLOR.garden;
-      else col = layer === "traffic" ? trafficColor(cell.traffic) : ZONE_COLOR[cell.arch] || "#cf8f54";
-      diamond(ctx, cell.cx, cell.cy, col, 1.001, "rgba(120,90,40,0.18)");
+      if (cell.kind === "road") col = layer === "traffic" ? trafficColor(cell.traffic) : PAL.zoneRoad;
+      else if (cell.kind === "park") col = layer === "traffic" ? trafficColor(cell.traffic * 0.6) : PAL.zone.garden;
+      else col = layer === "traffic" ? trafficColor(cell.traffic) : PAL.zone[cell.arch] || PAL.zone.core;
+      diamond(ctx, cell.cx, cell.cy, col, 1.001, PAL.cellEdge);
       if (cell.kind === "mine") diamond(ctx, cell.cx, cell.cy, mineOutline, 0.4);
       else if (cell.kind === "rival" && cell.rival) diamond(ctx, cell.cx, cell.cy, cssColor(cell.rival.firmId), 0.4);
     }
   }
   // chrome: frame + compass + scale bar
-  ctx.strokeStyle = "rgba(120,90,40,0.42)"; ctx.lineWidth = 2; ctx.strokeRect(9, 9, 982, 662);
-  ctx.lineWidth = 0.8; ctx.strokeStyle = "rgba(120,90,40,0.28)"; ctx.strokeRect(14, 14, 972, 652);
+  ctx.strokeStyle = PAL.frame1; ctx.lineWidth = 2; ctx.strokeRect(9, 9, 982, 662);
+  ctx.lineWidth = 0.8; ctx.strokeStyle = PAL.frame2; ctx.strokeRect(14, 14, 972, 652);
   const ox = 70, oy = 600, rr = 22;
-  ctx.fillStyle = "rgba(252,245,231,0.5)"; ctx.beginPath(); ctx.arc(ox, oy, rr + 8, 0, 7); ctx.fill();
-  ctx.strokeStyle = "#9a7a45"; ctx.lineWidth = 1.1; ctx.beginPath(); ctx.arc(ox, oy, rr, 0, 7); ctx.stroke();
-  ctx.fillStyle = "#9a5024"; ctx.beginPath(); ctx.moveTo(ox, oy - rr); ctx.lineTo(ox - 5, oy); ctx.lineTo(ox + 5, oy); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = "#2c1d11"; ctx.font = "700 14px 'IBM Plex Sans',sans-serif"; ctx.textAlign = "center"; ctx.fillText("N", ox, oy - rr - 6);
+  ctx.fillStyle = PAL.compassBg; ctx.beginPath(); ctx.arc(ox, oy, rr + 8, 0, 7); ctx.fill();
+  ctx.strokeStyle = PAL.compassRing; ctx.lineWidth = 1.1; ctx.beginPath(); ctx.arc(ox, oy, rr, 0, 7); ctx.stroke();
+  ctx.fillStyle = PAL.needle; ctx.beginPath(); ctx.moveTo(ox, oy - rr); ctx.lineTo(ox - 5, oy); ctx.lineTo(ox + 5, oy); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = PAL.ink; ctx.font = "700 14px 'Helvetica Neue',Helvetica,Arial,sans-serif"; ctx.textAlign = "center"; ctx.fillText("N", ox, oy - rr - 6);
 }
 
 // ───────────────────────── globe (shared painter) ─────────────────────────
@@ -321,39 +385,40 @@ function paintGlobe(cv: HTMLCanvasElement, cities: CityModel[], homeGeo: [number
   const ctx = cv.getContext("2d"); if (!ctx) return [];
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const W = r.width, H = r.height; ctx.clearRect(0, 0, W, H);
+  const GP = pal().globe;
   const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.4 * zoom;
   const rr = (rot * Math.PI) / 180, T = (tilt * Math.PI) / 180, cr = Math.cos(rr), sr = Math.sin(rr), ct = Math.cos(T), st = Math.sin(T);
   const proj = (lon: number, lat: number) => { const la = (lat * Math.PI) / 180, lo = (lon * Math.PI) / 180; const x0 = Math.cos(la) * Math.sin(lo), y0 = Math.sin(la), z0 = Math.cos(la) * Math.cos(lo); const x = x0 * cr + z0 * sr, z = -x0 * sr + z0 * cr; const y2 = y0 * ct - z * st, z2 = y0 * st + z * ct; return { x: cx + R * x, y: cy - R * y2, z: z2 }; };
   const projVec = (v: { x: number; y: number; z: number }) => { const x = v.x * cr + v.z * sr, z = -v.x * sr + v.z * cr; const y2 = v.y * ct - z * st, z2 = v.y * st + z * ct; return { x: cx + R * x, y: cy - R * y2, z: z2 }; };
-  if (opts.full) { const halo = ctx.createRadialGradient(cx, cy, R * 0.82, cx, cy, R * 1.34); halo.addColorStop(0, "rgba(224,165,47,0.18)"); halo.addColorStop(1, "rgba(224,165,47,0)"); ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(cx, cy, R * 1.34, 0, 7); ctx.fill(); }
-  const g = ctx.createRadialGradient(cx - R * 0.32, cy - R * 0.36, R * 0.15, cx, cy, R); g.addColorStop(0, "#bcd0cb"); g.addColorStop(0.62, "#9cb6b1"); g.addColorStop(1, "#7e9a98");
+  if (opts.full) { const halo = ctx.createRadialGradient(cx, cy, R * 0.82, cx, cy, R * 1.34); halo.addColorStop(0, GP.halo); halo.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(cx, cy, R * 1.34, 0, 7); ctx.fill(); }
+  const g = ctx.createRadialGradient(cx - R * 0.32, cy - R * 0.36, R * 0.15, cx, cy, R); g.addColorStop(0, GP.g0); g.addColorStop(0.62, GP.g1); g.addColorStop(1, GP.g2);
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fillStyle = g; ctx.fill();
-  ctx.strokeStyle = "rgba(120,90,40,0.15)"; ctx.lineWidth = 0.7;
+  ctx.strokeStyle = GP.grid; ctx.lineWidth = 0.7;
   for (let lon = -150; lon <= 180; lon += 30) { ctx.beginPath(); let s = false; for (let lat = -80; lat <= 80; lat += 4) { const q = proj(lon, lat); if (q.z > 0) { s ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); s = true; } else s = false; } ctx.stroke(); }
   for (let lat = -60; lat <= 60; lat += 30) { ctx.beginPath(); let s = false; for (let lon = -180; lon <= 180; lon += 4) { const q = proj(lon, lat); if (q.z > 0) { s ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); s = true; } else s = false; } ctx.stroke(); }
-  ctx.fillStyle = "#b07a44"; const ds = Math.max(opts.full ? 1.8 : 1.3, (opts.full ? 2.2 : 1.6) * zoom);
+  ctx.fillStyle = GP.land; const ds = Math.max(opts.full ? 1.8 : 1.3, (opts.full ? 2.2 : 1.6) * zoom);
   for (const p of land) { const q = proj(p[0], p[1]); if (q.z > 0) { ctx.globalAlpha = 0.45 + 0.5 * q.z; ctx.fillRect(q.x - ds / 2, q.y - ds / 2, ds, ds); } }
   ctx.globalAlpha = 1;
-  ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.strokeStyle = "rgba(154,80,36,0.5)"; ctx.lineWidth = 1.2; ctx.stroke();
-  if ((opts.full || opts.arcs) && homeGeo) { const a = toVec(homeGeo); for (const c of cities) { if (c.kind !== "export") continue; const b = toVec(c.geo); ctx.strokeStyle = "rgba(154,80,36,0.55)"; ctx.lineWidth = opts.full ? 1.4 : 1; ctx.setLineDash([5, 5]); ctx.beginPath(); let s = false; for (let t = 0; t <= 1.0001; t += 1 / 40) { const q = projVec(slerp(a, b, t)); if (q.z > 0) { if (!s) { ctx.moveTo(q.x, q.y); s = true; } else ctx.lineTo(q.x, q.y); } else s = false; } ctx.stroke(); ctx.setLineDash([]); } }
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.strokeStyle = GP.rim; ctx.lineWidth = 1.2; ctx.stroke();
+  if ((opts.full || opts.arcs) && homeGeo) { const a = toVec(homeGeo); for (const c of cities) { if (c.kind !== "export") continue; const b = toVec(c.geo); ctx.strokeStyle = GP.arc; ctx.lineWidth = opts.full ? 1.4 : 1; ctx.setLineDash([5, 5]); ctx.beginPath(); let s = false; for (let t = 0; t <= 1.0001; t += 1 / 40) { const q = projVec(slerp(a, b, t)); if (q.z > 0) { if (!s) { ctx.moveTo(q.x, q.y); s = true; } else ctx.lineTo(q.x, q.y); } else s = false; } ctx.stroke(); ctx.setLineDash([]); } }
   const pins: GlobePin[] = [];
   const labels: { text: string; x: number; y: number; prio: number }[] = []; // full globe: drawn after the pins, see below
   for (const c of cities) { const q = proj(c.geo[0], c.geo[1]); const front = q.z > 0.02; pins.push({ id: c.id, x: q.x, y: q.y, front });
     if (q.z > -0.1) {
-      const col = c.entered ? "#c0703a" : c.kind === "export" ? "#1f8c93" : "#9a7d52";
+      const col = c.entered ? GP.entered : c.kind === "export" ? GP.exportC : GP.other;
       const hov = !!mouse && Math.hypot(q.x - mouse.x, q.y - mouse.y) < (opts.full ? 22 : 13) && front;
-      ctx.globalAlpha = front ? 1 : 0.4; ctx.beginPath(); ctx.arc(q.x, q.y, opts.full ? (hov ? 8 : 6) : hov ? 5.5 : 4.2, 0, 7); ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = opts.full ? 2 : 1.4; ctx.strokeStyle = "#fff4e0"; ctx.stroke();
-      if (c.entered && opts.full) { ctx.beginPath(); ctx.arc(q.x, q.y, 11, 0, 7); ctx.strokeStyle = "rgba(192,112,58,0.5)"; ctx.lineWidth = 1.4; ctx.stroke(); }
+      ctx.globalAlpha = front ? 1 : 0.4; ctx.beginPath(); ctx.arc(q.x, q.y, opts.full ? (hov ? 8 : 6) : hov ? 5.5 : 4.2, 0, 7); ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = opts.full ? 2 : 1.4; ctx.strokeStyle = GP.pinEdge; ctx.stroke();
+      if (c.entered && opts.full) { ctx.beginPath(); ctx.arc(q.x, q.y, 11, 0, 7); ctx.strokeStyle = GP.ring; ctx.lineWidth = 1.4; ctx.stroke(); }
       ctx.globalAlpha = 1;
-      if (front && opts.full) labels.push({ text: c.name.toUpperCase(), x: q.x, y: q.y, prio: hov ? 0 : c.entered ? 1 : 2 });
-      else if (front && opts.mini && (c.entered || hov)) { ctx.font = "700 9px 'IBM Plex Sans',sans-serif"; ctx.textAlign = "center"; const ty = q.y - 8; ctx.lineWidth = 2.6; ctx.lineJoin = "round"; ctx.strokeStyle = "rgba(244,236,216,0.92)"; ctx.strokeText(c.name.toUpperCase(), q.x, ty); ctx.fillStyle = "#2c1d11"; ctx.fillText(c.name.toUpperCase(), q.x, ty); }
+      if (front && opts.full) labels.push({ text: hov && !c.entered ? `${c.name} · ${c.rivalIds.length ? `${c.rivalIds.length} rival${c.rivalIds.length === 1 ? "" : "s"}` : "no rivals yet"}`.toUpperCase() : c.name.toUpperCase(), x: q.x, y: q.y, prio: hov ? 0 : c.entered ? 1 : 2 });
+      else if (front && opts.mini && (c.entered || hov)) { ctx.font = "700 9px 'Helvetica Neue',Helvetica,Arial,sans-serif"; ctx.textAlign = "center"; const ty = q.y - 8; ctx.lineWidth = 2.6; ctx.lineJoin = "round"; ctx.strokeStyle = GP.labelHalo; ctx.strokeText(c.name.toUpperCase(), q.x, ty); ctx.fillStyle = GP.labelInk; ctx.fillText(c.name.toUpperCase(), q.x, ty); }
     }
   }
   // DW-080: the full globe labels every city in front — on a phone the US cities printed over each
   // other. Hovered first, then entered, then the rest; a label that would overlap one already drawn
   // tries below its pin, else waits for a hover.
   if (labels.length) {
-    ctx.font = "800 14px 'EB Garamond',Georgia,serif"; ctx.textAlign = "center"; ctx.lineWidth = 3.5; ctx.lineJoin = "round";
+    ctx.font = "800 14px 'Helvetica Neue',Helvetica,Arial,sans-serif"; ctx.textAlign = "center"; ctx.lineWidth = 3.5; ctx.lineJoin = "round";
     const drawn: { x0: number; x1: number; y0: number; y1: number }[] = [];
     for (const L of labels.sort((p, q) => p.prio - q.prio)) {
       const w = ctx.measureText(L.text).width + 6;
@@ -361,7 +426,7 @@ function paintGlobe(cv: HTMLCanvasElement, cities: CityModel[], homeGeo: [number
         const r = { x0: L.x - w / 2, x1: L.x + w / 2, y0: ty - 13, y1: ty + 3 };
         if (L.prio > 0 && drawn.some((d) => r.x0 < d.x1 && r.x1 > d.x0 && r.y0 < d.y1 && r.y1 > d.y0)) continue;
         drawn.push(r);
-        ctx.strokeStyle = "rgba(244,236,216,0.92)"; ctx.strokeText(L.text, L.x, ty); ctx.fillStyle = "#2c1d11"; ctx.fillText(L.text, L.x, ty);
+        ctx.strokeStyle = GP.labelHalo; ctx.strokeText(L.text, L.x, ty); ctx.fillStyle = GP.labelInk; ctx.fillText(L.text, L.x, ty);
         break;
       }
     }
@@ -463,6 +528,7 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
   const sel = cities.find((c) => c.id === selId) ?? cities[0];
   const plan = useMemo(() => (sel ? cityPlan(sel) : null), [sel?.id, sel?.mine.map((f) => f.id + f.lot + f.district + f.active).join(","), sel?.rivals.map((r) => r.firmId + r.lot).join(","), sel?.lots.map((L) => L.id + L.unlocked + L.occupant).join(",")]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const mode = useMode(); // repaint the canvas on a light/dark switch
 
   useEffect(() => {
     if (!plan || !canvasRef.current) return;
@@ -470,7 +536,7 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
     const id = window.setTimeout(draw, 0);
     window.addEventListener("resize", draw);
     return () => { clearTimeout(id); window.removeEventListener("resize", draw); };
-  }, [plan, layer]);
+  }, [plan, layer, mode]);
 
   if (!sel) return <div className="rounded-xl border border-line2 bg-panel p-6 text-sm text-inksoft">The city map opens once geographic markets are in play.</div>;
 
@@ -490,17 +556,15 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
     setActions((a) => ({ ...a, builds: [...a.builds, order], markets: Array.from(new Set([...a.markets, sel.id])) }));
     setSiting(null);
   };
-  // Parcels you can lease right now (unlocked + unoccupied by built/queued/rival), with a crowd
-  // preview so a blue-ocean spot is obvious. Mirrors the engine catchment weighting.
+  // Parcels you can lease right now (unlocked + unoccupied by built/queued/rival), each with the honest
+  // siting read (lib/crowd.ts, 11-09) — for the facility type being sited, once one is picked.
   const cat = sel.catchment;
   const occupiedLots = new Set<string>(); sel.mine.forEach((f) => f.lot && occupiedLots.add(f.lot)); sel.rivals.forEach((r) => r.lot && occupiedLots.add(r.lot));
   const lotCoord = new Map(sel.lots.map((L) => [L.id, L] as const));
-  const sitedPts = [
-    ...sel.mine.map((f) => f.lot && lotCoord.get(f.lot)).filter(Boolean).map((L) => ({ x: (L as MarketLot).x, y: (L as MarketLot).y, own: true })),
-    ...sel.rivals.map((r) => r.lot && lotCoord.get(r.lot)).filter(Boolean).map((L) => ({ x: (L as MarketLot).x, y: (L as MarketLot).y, own: false })),
-  ];
-  const crowdAtLot = (L: MarketLot): number => sitedPts.reduce((a, s) => { const k = Math.max(0, 1 - Math.hypot(L.x - s.x, L.y - s.y) / (cat?.radius ?? 5)); return a + (k > 0 ? k * (s.own ? cat?.self_weight ?? 0.5 : 1) : 0); }, 0);
-  const crowdTone = (cr: number): { label: string; color: string } => cr < 0.25 ? { label: "Blue ocean", color: "var(--color-hop)" } : cr < 0.9 ? { label: "Some competition", color: "var(--color-gold)" } : { label: "Crowded", color: "var(--color-brick)" };
+  const placedAt = <T extends { lot?: string; type: string; district: string }>(xs: T[]) => xs.flatMap((f) => { const L = f.lot ? lotCoord.get(f.lot) : undefined; return L ? [{ x: L.x, y: L.y, type: f.type, district: f.district }] : []; });
+  const crowdSites = citySites(sel, placedAt(sel.mine), placedAt(sel.rivals));
+  const readAt = (L: MarketLot | undefined, type?: string | null): CrowdRead =>
+    crowdRead(L ? { x: L.x, y: L.y, district: L.district } : { x: -99, y: -99, district: "" }, crowdSites, cat, sel.rivalIds.length, type ? sel.retailTypes.includes(type) : true);
   const availLots = sel.lots.filter((L) => L.unlocked && !occupiedLots.has(L.id));
   const toggleFac = (id: string) => {
     const fac = sel.mine.find((f) => f.id === id); if (!fac || fac.pending) return;
@@ -580,15 +644,15 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
           <div className="eyebrow">Your operation</div>
           <div className="display mt-0.5 text-[1.05rem] leading-tight text-ink">{view.names[youId] ?? "Your Brewery"}</div>
           <div className="mt-0.5 text-sm italic text-inksoft">{enteredCount} market{enteredCount === 1 ? "" : "s"} · {siteCount} site{siteCount === 1 ? "" : "s"}</div>
-          <div onClick={() => setGlobeOpen(true)} title="Open the globe" className="relative mt-2.5 cursor-pointer overflow-hidden rounded-[10px] border border-line2" style={{ background: "radial-gradient(120% 100% at 50% 20%, #f6ecd4, #e2d0a6)" }}>
+          <div onClick={() => setGlobeOpen(true)} title="Open the globe" className="relative mt-2.5 cursor-pointer overflow-hidden rounded-[10px] border border-line2" style={{ background: "var(--map-globe-bg)" }}>
             <div className="pointer-events-none absolute left-2 top-1.5 z-[2]">
               {/* the card is always parchment (like the map) — fixed ink, not theme tokens, or dark mode reads light-on-light */}
-              <div className="font-mono text-[0.5rem] font-semibold uppercase tracking-[0.14em]" style={{ color: "rgba(44,29,17,.62)" }}>Territory</div>
-              <div className="display text-[0.82rem] leading-none" style={{ color: "#2c1d11" }}>{hasIntl ? "Global network" : "United States"}</div>
-              <div className="font-mono text-[0.5rem]" style={{ color: "rgba(44,29,17,.62)" }}>{hasIntl ? `${cities.filter((c) => c.kind !== "export").length} domestic · ${cities.filter((c) => c.kind === "export" && c.entered).length} intl live` : `${cities.length} markets`}</div>
+              <div className="font-mono text-[0.5rem] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--map-ink-soft)" }}>Territory</div>
+              <div className="display text-[0.82rem] leading-none" style={{ color: "var(--map-ink)" }}>{hasIntl ? "Global network" : "United States"}</div>
+              <div className="font-mono text-[0.5rem]" style={{ color: "var(--map-ink-soft)" }}>{hasIntl ? `${cities.filter((c) => c.kind !== "export").length} domestic · ${cities.filter((c) => c.kind === "export" && c.entered).length} intl live` : `${cities.length} markets`}</div>
             </div>
             <MiniGlobe cities={cities} homeGeo={homeGeo} hasIntl={hasIntl} onSelect={selectCity} onOpen={() => setGlobeOpen(true)} />
-            <div className="pointer-events-none absolute bottom-1.5 right-2 font-mono text-[0.5rem] font-semibold uppercase tracking-wide" style={{ color: "#8a4b1e" }}>Open globe ⤢</div>
+            <div className="pointer-events-none absolute bottom-1.5 right-2 font-mono text-[0.5rem] font-semibold uppercase tracking-wide" style={{ color: "var(--color-copperdeep)" }}>Open globe ⤢</div>
           </div>
         </section>
 
@@ -631,6 +695,11 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
                     <span className="text-[0.78rem] italic text-inksoft">{c.region}{c.kind === "export" ? " · intl" : ""}</span>
                     <span className="font-mono text-[0.58rem]" style={{ color: c.entered ? "var(--color-inksoft)" : "var(--color-gold)" }}>{c.entered ? `${ns} site${ns === 1 ? "" : "s"}` : `Enter · ${fmt.money(c.entryCost)}`}</span>
                   </div>
+                  {/* 11-09: the competition, visible before entry (public: sites + shelves) */}
+                  <div data-dw="city-rivals" className="mt-1 flex items-center gap-1 pl-[18px]" title={cityRivals(c, view.names).map((r) => `${r.name}: ${r.sites ? `${r.sites} site${r.sites === 1 ? "" : "s"} (${r.districts.join(", ")})` : "ships in"}`).join("\n") || "No rival sells here yet"}>
+                    {cityRivals(c, view.names).slice(0, 6).map((r) => <span key={r.firmId} className="h-2 w-2 flex-none rounded-full" style={{ background: firmColor(r.firmId), opacity: r.sites ? 1 : 0.55 }} />)}
+                    <span className="font-mono text-[0.56rem] text-inksoft">{c.rivalIds.length ? `${c.rivalIds.length} rival${c.rivalIds.length === 1 ? "" : "s"}` : "no rivals yet"}</span>
+                  </div>
                 </button>
               );
             })}
@@ -644,7 +713,7 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
         <div className="flex flex-wrap items-center gap-2.5">
           <div className="inline-flex gap-0.5 rounded-[10px] border border-line2 bg-panel p-0.5">
             {layerTabs.map((t) => (
-              <button key={t.id} onClick={() => setLayer(t.id)} className="rounded-[7px] px-3 py-1.5 font-mono text-[0.62rem] font-semibold uppercase tracking-wide" style={{ background: layer === t.id ? "var(--color-copper)" : "transparent", color: layer === t.id ? "#fff4e0" : "var(--color-inksoft)" }}>{t.label}</button>
+              <button key={t.id} onClick={() => setLayer(t.id)} className="rounded-[7px] px-3 py-1.5 font-mono text-[0.62rem] font-semibold uppercase tracking-wide" style={{ background: layer === t.id ? "var(--color-copper)" : "transparent", color: layer === t.id ? "var(--seat-ink)" : "var(--color-inksoft)" }}>{t.label}</button>
             ))}
           </div>
           {/* DW-082e: Supply & lanes sat at the foot of the right rail — easy to miss (playtest 10-28) */}
@@ -671,12 +740,12 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
           {/* overflow-visible so on-map popovers (facility / lease) can extend above a
               top-row marker without being cropped by the map box; the canvas keeps the
               rounded map corners via its own border-radius. */}
-          <div className="absolute inset-0 overflow-visible rounded-[14px]" style={{ background: PAL.mapbg }}>
+          <div className="absolute inset-0 overflow-visible rounded-[14px]" style={{ background: "var(--map-bg)" }}>
             <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block", borderRadius: 14 }} />
 
             {plan && (layer === "map" || layer === "trade") && plan.districts.map((d) => { const ec = dByKey(d.key); if (!ec) return null; const p = pct(d.cx, d.cy, 60, layer); return (
               <div key={d.key} className="pointer-events-none absolute z-[4] flex flex-col items-center gap-0.5" style={{ left: `${p.l}%`, top: `${p.t}%`, transform: "translate(-50%,-100%)" }}>
-                <div className="display whitespace-nowrap text-[0.8rem] tracking-[0.1em]" style={{ color: "rgba(44,29,17,.78)", textShadow: `0 1px 3px ${PAL.mapbg}, 0 0 6px ${PAL.mapbg}` }}>{ec.label}</div>
+                <div className="display whitespace-nowrap text-[0.8rem] tracking-[0.1em]" style={{ color: "var(--map-ink)", textShadow: "0 1px 3px var(--map-halo), 0 0 6px var(--map-halo)" }}>{ec.label}</div>
                 <div className="pointer-events-auto flex items-center gap-1">
                   <span className="hidden rounded border border-line bg-panel/90 px-1 py-px font-mono text-[0.55rem] sm:inline" style={{ color: ec.rent > 1.05 ? "var(--color-brick)" : ec.rent < 0.95 ? "var(--color-hop)" : "var(--color-inksoft)" }} title="Rent multiplier">R×{ec.rent.toFixed(2)}</span>
                   <span className="hidden rounded border border-line bg-panel/90 px-1 py-px font-mono text-[0.55rem] sm:inline" style={{ color: ec.out > 1.02 ? "var(--color-hop)" : ec.out < 0.98 ? "var(--color-brick)" : "var(--color-inksoft)" }} title="Output multiplier">O×{ec.out.toFixed(2)}</span>
@@ -686,31 +755,31 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
               </div>
             ); })}
 
-            {plan && facOn && sel.entered && (layer === "map" || layer === "trade") && plan.leases.map((L, i) => { const p = pct(L.cx, L.cy, 0, layer); const ec = dByKey(L.district); const z = ZONE_OF[ec?.kind ?? ""]; const ct = crowdTone(L.crowd); return (
+            {plan && facOn && sel.entered && (layer === "map" || layer === "trade") && plan.leases.map((L, i) => { const p = pct(L.cx, L.cy, 0, layer); const ec = dByKey(L.district); const z = ZONE_OF[ec?.kind ?? ""]; const ct = L.read; return (
               <button key={i} data-dw="lease-pin" onClick={() => openSiting(L.district, L.lot)} title={`Available parcel · ${ec?.label ?? L.district} · ${ct.label}`} className="absolute z-[5] cursor-pointer border-none bg-none p-0" style={{ left: `${p.l}%`, top: `${p.t}%`, transform: "translate(-50%,-100%)" }}>
-                <span className="hidden rounded-t-[3px] border px-1.5 py-0.5 font-mono text-[0.5rem] font-bold uppercase tracking-wide text-white sm:block" style={{ background: "var(--color-copperdeep)", borderColor: "#6e3914" }}>FOR LEASE</span>
-                <span className="hidden items-center justify-center gap-0.5 rounded-b-[3px] border border-t-0 px-1 py-px text-center font-mono text-[0.44rem] font-bold uppercase text-copperdeep sm:flex" style={{ background: "#f3e6c8", borderColor: "#6e3914" }}><span className="h-1.5 w-1.5 rounded-full" style={{ background: ct.color }} />{z?.zone ?? ""}</span>
-                <span className="grid h-[18px] w-[18px] place-items-center rounded-[4px] border sm:hidden" style={{ background: "var(--color-copperdeep)", borderColor: "#6e3914" }} aria-label="For lease"><span className="h-1.5 w-1.5 rounded-full" style={{ background: ct.color }} /></span>
-                <span className="mx-auto block h-2 w-px" style={{ background: "#6e3914" }} />
+                <span className="hidden rounded-t-[3px] border px-1.5 py-0.5 font-mono text-[0.5rem] font-bold uppercase tracking-wide text-white sm:block" style={{ background: "var(--color-copperdeep)", borderColor: "var(--map-lease-edge)" }}>FOR LEASE</span>
+                <span className="hidden items-center justify-center gap-0.5 rounded-b-[3px] border border-t-0 px-1 py-px text-center font-mono text-[0.44rem] font-bold uppercase text-copperdeep sm:flex" style={{ background: "var(--color-panel)", borderColor: "var(--map-lease-edge)" }}><span className="h-1.5 w-1.5 rounded-full" style={{ background: ct.color }} />{z?.zone ?? ""}</span>
+                <span className="grid h-[18px] w-[18px] place-items-center rounded-[4px] border sm:hidden" style={{ background: "var(--color-copperdeep)", borderColor: "var(--map-lease-edge)" }} aria-label="For lease"><span className="h-1.5 w-1.5 rounded-full" style={{ background: ct.color }} /></span>
+                <span className="mx-auto block h-2 w-px" style={{ background: "var(--map-lease-edge)" }} />
               </button>
             ); })}
 
             {plan && plan.facilities.map((f) => { const p = pct(f.cx, f.cy, f.h, layer); const ec = dByKey(f.district); const tt = typeOf(f.type); const lostHere = !!sel.mine.find((x) => x.id === f.id)?.overruled; const dim = hoverFac && hoverFac !== f.id ? 0.5 : !f.active ? 0.5 : lostHere ? 0.9 : f.pending ? 0.6 : 1; const fb = tradeOn ? flowBadge((tt?.production_capacity ?? tt?.capacity_contribution ?? 0) - (tt?.retail_draw ?? 0)) : null; return (
-              <button key={f.id} data-dw="fac-marker" onClick={() => setFacPop(f.id)} onMouseEnter={() => setHoverFac(f.id)} onMouseLeave={() => setHoverFac(null)} title={`${tt?.label ?? f.type} · ${ec?.label ?? f.district}${f.pending ? (lostHere ? " · not in the team plan" : " · breaking ground") : f.active ? "" : " · mothballed"}`} className="absolute z-[7] flex cursor-pointer flex-col items-center border-none bg-none p-0" style={{ left: `${p.l}%`, top: `${p.t}%`, transform: "translate(-50%,-100%)", opacity: dim, filter: hoverFac === f.id ? "drop-shadow(0 0 5px var(--color-copperdeep))" : "drop-shadow(0 3px 5px rgba(40,25,8,.32))" }}>
+              <button key={f.id} data-dw="fac-marker" onClick={() => setFacPop(f.id)} onMouseEnter={() => setHoverFac(f.id)} onMouseLeave={() => setHoverFac(null)} title={`${tt?.label ?? f.type} · ${ec?.label ?? f.district}${f.pending ? (lostHere ? " · not in the team plan" : " · breaking ground") : f.active ? "" : " · mothballed"}`} className="absolute z-[7] flex cursor-pointer flex-col items-center border-none bg-none p-0" style={{ left: `${p.l}%`, top: `${p.t}%`, transform: "translate(-50%,-100%)", opacity: dim, filter: hoverFac === f.id ? "drop-shadow(0 0 5px var(--color-copperdeep))" : "drop-shadow(0 3px 6px rgba(0,0,0,.35))" }}>
                 {lostHere ? (
                   // DW-082e: a build the team plan dropped — greyed, a brick ✕ and a "not in plan" tag (a dimmer dash read as just another pending build)
                   <span className="relative block">
                     <FacilityChip type={f.type} color={cssColor(youId)} size={30} mine style={{ outline: "2px dashed var(--color-brick)", outlineOffset: 1, filter: "grayscale(.85)", opacity: 0.6 }} />
                     <span aria-hidden="true" className="absolute -right-2 -top-2 grid h-[15px] w-[15px] place-items-center rounded-full font-mono text-[0.55rem] font-bold leading-none text-white" style={{ background: "var(--color-brick)", boxShadow: "0 0 0 1.5px var(--color-panel)" }}>✕</span>
                   </span>
-                ) : <FacilityChip type={f.type} color={cssColor(youId)} size={30} mine style={f.pending ? { outline: "2px dashed #7e3f18", outlineOffset: 1 } : undefined} />}
+                ) : <FacilityChip type={f.type} color={cssColor(youId)} size={30} mine style={f.pending ? { outline: "2px dashed var(--color-copperdeep)", outlineOffset: 1 } : undefined} />}
                 {lostHere && <span className="mt-0.5 hidden whitespace-nowrap rounded-[3px] px-1 py-px font-mono text-[0.45rem] font-bold uppercase leading-none tracking-wide text-white sm:block" style={{ background: "var(--color-brick)" }}>not in plan</span>}
-                {fb && <span className="mt-0.5 rounded-full px-1.5 py-px font-mono text-[0.5rem] font-bold leading-none" style={{ background: fb.tone === "out" ? "var(--color-copper)" : fb.tone === "in" ? "var(--color-aero)" : "var(--color-panel)", color: fb.tone === "neutral" ? "var(--color-inksoft)" : "#fff4e0", whiteSpace: "nowrap" }}>{fb.text}</span>}
+                {fb && <span className="mt-0.5 rounded-full px-1.5 py-px font-mono text-[0.5rem] font-bold leading-none" style={{ background: fb.tone === "out" ? "var(--color-copper)" : fb.tone === "in" ? "var(--color-aero)" : "var(--color-panel)", color: fb.tone === "neutral" ? "var(--color-inksoft)" : "var(--seat-ink)", whiteSpace: "nowrap" }}>{fb.text}</span>}
               </button>
             ); })}
 
             {plan && plan.rivals.map((r, i) => { const p = pct(r.cx, r.cy, r.h, layer); const col = cssColor(r.firmId); const ec = dByKey(r.district); return (
-              <button key={i} onClick={() => onInspect(r.firmId)} title={`${r.name} · ${typeOf(r.type)?.label ?? r.type} · ${ec?.label ?? r.district} — scout`} className="absolute z-[6] cursor-pointer border-none bg-none p-0" style={{ left: `${p.l}%`, top: `${p.t}%`, transform: "translate(-50%,-100%)", opacity: hoverSeg ? 0.45 : 1, filter: "drop-shadow(0 2px 4px rgba(40,25,8,.3))" }}>
+              <button key={i} onClick={() => onInspect(r.firmId)} title={`${r.name} · ${typeOf(r.type)?.label ?? r.type} · ${ec?.label ?? r.district} — scout`} className="absolute z-[6] cursor-pointer border-none bg-none p-0" style={{ left: `${p.l}%`, top: `${p.t}%`, transform: "translate(-50%,-100%)", opacity: hoverSeg ? 0.45 : 1, filter: "drop-shadow(0 2px 5px rgba(0,0,0,.32))" }}>
                 <FacilityChip type={r.type} color={col} size={24} />
               </button>
             ); })}
@@ -729,14 +798,14 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
                 <>
                   <svg className="pointer-events-none absolute inset-0 z-[5] h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
                     {retail.slice(0, 3).map((rt, i) => { const [x2, y2] = ptOf(rt); if (sx === x2 && sy === y2) return null; return (
-                      <path key={i} d={`M${sx} ${sy} Q${(sx + x2) / 2} ${Math.min(sy, y2) - 7} ${x2} ${y2}`} fill="none" stroke="#cf9a5f" strokeWidth="0.6" strokeDasharray="1.6 1.6" strokeLinecap="round" className="dwflow" vectorEffect="non-scaling-stroke" />
+                      <path key={i} d={`M${sx} ${sy} Q${(sx + x2) / 2} ${Math.min(sy, y2) - 7} ${x2} ${y2}`} fill="none" style={{ stroke: "var(--color-copper)" }} strokeWidth="0.6" strokeDasharray="1.6 1.6" strokeLinecap="round" className="dwflow" vectorEffect="non-scaling-stroke" />
                     ); })}
                     {Math.abs(net) > 5 && (() => { const out = net > 0; const x2 = out ? 98 : 2; const y2 = Math.max(8, sy - 12); return (
-                      <path d={`M${sx} ${sy} Q${(sx + x2) / 2} ${y2 - 5} ${x2} ${y2}`} fill="none" stroke={out ? "#c0703a" : "#1f8c93"} strokeWidth="1.3" strokeDasharray="2.6 2.4" strokeLinecap="round" className="dwflow" vectorEffect="non-scaling-stroke" />
+                      <path d={`M${sx} ${sy} Q${(sx + x2) / 2} ${y2 - 5} ${x2} ${y2}`} fill="none" style={{ stroke: out ? "var(--color-copper)" : "var(--color-aero)" }} strokeWidth="1.3" strokeDasharray="2.6 2.4" strokeLinecap="round" className="dwflow" vectorEffect="non-scaling-stroke" />
                     ); })()}
                   </svg>
                   {Math.abs(net) > 5 && (
-                    <div className="pointer-events-none absolute top-2 z-[6] rounded-full px-2 py-0.5 font-mono text-[0.55rem] font-bold" style={{ ...(net > 0 ? { right: 8 } : { left: 8 }), background: net > 0 ? "var(--color-copper)" : "var(--color-aero)", color: "#fff4e0" }}>{net > 0 ? `↗ ${fmt.int(net)} ship out` : `↘ ${fmt.int(-net)} ship in`}</div>
+                    <div className="pointer-events-none absolute top-2 z-[6] rounded-full px-2 py-0.5 font-mono text-[0.55rem] font-bold" style={{ ...(net > 0 ? { right: 8 } : { left: 8 }), background: net > 0 ? "var(--color-copper)" : "var(--color-aero)", color: "var(--seat-ink)" }}>{net > 0 ? `↗ ${fmt.int(net)} ship out` : `↘ ${fmt.int(-net)} ship in`}</div>
                   )}
                 </>
               );
@@ -832,7 +901,7 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
             })()}
 
             {sel.entered && facOn && selSites === 0 && !siting && !facPop && (
-              <div className="absolute bottom-3 left-1/2 z-[7] hidden -translate-x-1/2 items-center gap-2 rounded-lg px-4 py-2 text-sm sm:flex" style={{ background: "var(--color-ink)", color: "var(--color-paper)" }}>
+              <div className="absolute bottom-3 left-1/2 z-[7] hidden -translate-x-1/2 items-center gap-2 rounded-lg px-4 py-2 text-sm sm:flex" style={{ background: "var(--sheen), var(--color-panel)", color: "var(--color-ink)", border: "1px solid color-mix(in srgb, var(--color-copper) 60%, transparent)", boxShadow: "var(--gs)" }}>
                 <span className="font-mono text-[0.55rem] font-semibold uppercase tracking-wide text-gold">New market</span>
                 You're in {sel.name} — click a FOR LEASE lot to site your first facility.
               </div>
@@ -850,8 +919,8 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
         <div className="flex flex-wrap items-center gap-3.5 text-sm text-inksoft">
           <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: firmColor(youId) }} />Your sites</span>
           <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: "var(--color-inksoft)" }} />Rivals</span>
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px] border border-dashed border-copperdeep" style={{ background: "rgba(224,165,47,.32)" }} />For lease</span>
-          {sel.mine.some((f) => f.pending && !f.overruled) && <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm border-2 border-dashed" style={{ borderColor: "#7e3f18" }} />Breaking ground</span>}
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px] border border-dashed border-copperdeep" style={{ background: "color-mix(in srgb, var(--color-copper) 32%, transparent)" }} />For lease</span>
+          {sel.mine.some((f) => f.pending && !f.overruled) && <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm border-2 border-dashed" style={{ borderColor: "var(--color-copperdeep)" }} />Breaking ground</span>}
           {sel.mine.some((f) => f.overruled) && <span className="flex items-center gap-1.5 text-brick"><span className="grid h-3 w-3 place-items-center rounded-full font-mono text-[0.45rem] font-bold leading-none text-white" style={{ background: "var(--color-brick)" }}>✕</span>Not in the team plan</span>}
           <span className="flex-1" />
           <span className="italic">{legendNote}</span>
@@ -935,7 +1004,7 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
                 {sel.districts.map((d) => { const sites = sel.mine.filter((f) => f.district === d.key && !f.pending).length; return (
                   <div key={d.key} className="rounded-[9px] border border-line2 px-2.5 py-2">
                     <div className="flex items-baseline justify-between gap-2"><span className="text-[0.92rem] font-semibold text-ink">{d.label}</span><span className="font-mono text-[0.5rem] font-semibold uppercase tracking-wide text-copperdeep">{sites} yours</span></div>
-                    <div className="text-[0.72rem] italic text-inksoft">{d.best}</div>
+                    <div className="text-[0.72rem] italic text-inksoft">{d.traits}</div>
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       <span className="rounded-[6px] border border-line2 px-1.5 py-px font-mono text-[0.58rem]" style={{ color: d.rent > 1.05 ? "var(--color-brick)" : d.rent < 0.95 ? "var(--color-hop)" : "var(--color-inksoft)" }}>Rent ×{d.rent.toFixed(2)}</span>
                       <span className="rounded-[6px] border border-line2 px-1.5 py-px font-mono text-[0.58rem]" style={{ color: d.out > 1.02 ? "var(--color-hop)" : d.out < 0.98 ? "var(--color-brick)" : "var(--color-inksoft)" }}>Output ×{d.out.toFixed(2)}</span>
@@ -952,7 +1021,7 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
                 <div className="mb-1 font-mono text-[0.55rem] font-semibold uppercase tracking-[0.14em] text-copperdeep">Site a facility</div>
                 {siting && siting.lot ? (() => {
                   const d = dByKey(siting.district ?? "")!; const z = ZONE_OF[d?.kind ?? ""] ?? { zone: "", allow: [] as string[] };
-                  const lotObj = lotCoord.get(siting.lot); const ct = crowdTone(lotObj ? crowdAtLot(lotObj) : 0);
+                  const lotObj = lotCoord.get(siting.lot); const ct = readAt(lotObj, siting.type);
                   const selType = siting.type; const selOk = !!selType && z.allow.includes(selType);
                   const capex = selType ? typeOf(selType)?.base_cost ?? 0 : 0;
                   const queuedSpend = actions.builds.reduce((s, b) => s + (typeOf(b.type)?.base_cost ?? 0) + (b.bid ?? 0), 0);
@@ -969,6 +1038,7 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
                         <span className="rounded border border-line2 bg-panel2 px-1.5 py-px font-mono text-[0.58rem] text-aero">{d.brand > 0 ? `Brand +${d.brand}` : "No brand"}</span>
                         <span className="flex items-center gap-1 rounded border px-1.5 py-px font-mono text-[0.58rem]" style={{ borderColor: ct.color, color: ct.color }}><span className="h-1.5 w-1.5 rounded-full" style={{ background: ct.color }} />{ct.label}</span>
                       </div>
+                      <div data-dw="crowd-why" className="mb-2 text-[0.72rem] leading-snug text-inksoft">{ct.why}</div>
                       <div className="flex flex-col gap-1.5">
                         {facTypes.map((t) => { const allowed = z.allow.includes(t.id), isSel = selType === t.id, canAfford = view.own.cash - queuedSpend >= t.base_cost; return (
                           <button key={t.id} onClick={() => allowed && setSiting({ ...siting, type: t.id })} disabled={!allowed} className="rounded-[10px] border p-2.5 text-left transition-colors" style={{ borderColor: !allowed ? "var(--color-line2)" : isSel ? "var(--color-copperdeep)" : "var(--color-line)", background: !allowed ? "color-mix(in srgb, var(--color-panel2) 50%, transparent)" : isSel ? "color-mix(in srgb, var(--color-copper) 10%, var(--color-panel))" : "var(--color-panel)", opacity: allowed ? 1 : 0.5, cursor: allowed ? "pointer" : "not-allowed" }}>
@@ -1005,7 +1075,7 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
                       <div className="text-sm italic text-inksoft">Every unlocked parcel here is taken.</div>
                     ) : (
                       <div className="flex flex-col gap-1.5">
-                        {availLots.map((L) => { const d = dByKey(L.district); const z = ZONE_OF[d?.kind ?? ""]; const ct = crowdTone(crowdAtLot(L)); return (
+                        {availLots.map((L) => { const d = dByKey(L.district); const z = ZONE_OF[d?.kind ?? ""]; const ct = readAt(L); return (
                           <button key={L.id} onClick={() => setSiting({ lot: L.id, district: L.district, type: null })} className="flex items-center gap-2.5 rounded-[9px] border border-line2 bg-panel3 px-2.5 py-2 text-left" style={{ background: "var(--color-panel)" }}>
                             <span className="h-2 w-2 flex-none rounded-full" style={{ background: ct.color }} />
                             <div className="min-w-0 flex-1"><div className="text-[0.9rem] font-semibold text-ink">{d?.label ?? L.district}</div><div className="text-[0.72rem] italic text-inksoft">{z?.zone ?? ""}</div></div>
@@ -1038,8 +1108,8 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
       {/* ░░ overlays ░░ */}
       {/* entry modal */}
       {entering && (() => { const ec = cities.find((c) => c.id === entering); if (!ec) return null; const can = view.own.cash >= ec.entryCost; return (
-        <div role="dialog" aria-modal="true" onClick={() => setEntering(null)} className="fixed inset-0 z-50 grid place-items-center p-4" style={{ background: "rgba(44,29,17,.4)", backdropFilter: "blur(3px)" }}>
-          <div onClick={(e) => e.stopPropagation()} className="w-[420px] max-w-[94vw] overflow-hidden rounded-2xl border border-line2 bg-panel" style={{ boxShadow: "0 18px 50px rgba(40,25,8,.4)" }}>
+        <div role="dialog" aria-modal="true" onClick={() => setEntering(null)} className="fixed inset-0 z-50 grid place-items-center p-4" style={{ background: "rgba(0,0,0,.45)", backdropFilter: "blur(3px)" }}>
+          <div onClick={(e) => e.stopPropagation()} className="w-[420px] max-w-[94vw] overflow-hidden rounded-2xl border border-line2 bg-panel" style={{ boxShadow: "0 18px 50px rgba(0,0,0,.45)" }}>
             <div className="h-1.5" style={{ background: "linear-gradient(90deg,var(--color-gold),var(--color-copper))" }} />
             <div className="px-5 py-5">
               <div className="font-mono text-[0.55rem] font-semibold uppercase tracking-[0.16em] text-copperdeep">{ec.region} · new market</div>
@@ -1055,6 +1125,21 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
                     <span className="w-24 text-right font-mono text-[0.58rem] text-inksoft">led by {leaderName(s.leader)}</span>
                   </div>
                 ))}
+              </div>
+              {/* 11-09: who is already here — every brewery in a city competes for its shoppers */}
+              <div data-dw="entry-rivals" className="mb-3.5">
+                <div className="mb-1 font-mono text-[0.55rem] font-semibold uppercase tracking-[0.14em] text-inksoft">Rivals here</div>
+                {cityRivals(ec, view.names).length ? (
+                  <div className="flex flex-col gap-1">
+                    {cityRivals(ec, view.names).map((r) => (
+                      <div key={r.firmId} className="flex items-center gap-2 text-sm">
+                        <span className="h-2 w-2 flex-none rounded-full" style={{ background: firmColor(r.firmId) }} />
+                        <span className="flex-1 truncate text-ink">{r.name}</span>
+                        <span className="font-mono text-[0.6rem] text-inksoft">{r.sites ? `${r.sites} site${r.sites === 1 ? "" : "s"} · ${r.districts.join(", ")}` : "ships in"}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : <div className="text-sm text-inksoft">No rival sells here yet.</div>}
               </div>
               <div className="flex items-center justify-between border-t border-line pt-3.5">
                 <div><div className="font-mono text-[0.55rem] uppercase tracking-wide text-inksoft">Entry cost</div><div className="tnum text-xl font-bold" style={{ color: can ? "var(--color-ink)" : "var(--color-brick)" }}>{fmt.money(ec.entryCost)}</div></div>
@@ -1085,8 +1170,8 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
         const setOffer = (id: string, v: string) => setActions((a) => { const supply = { ...(a.supply ?? carriedSupply ?? {}) }; if (!v) delete supply[id]; else supply[id] = Math.max(0, +v); return { ...a, supply }; });
         return (
         <>
-          <div onClick={() => setDrawerOpen(false)} className="fixed inset-0 z-50" style={{ background: "rgba(44,29,17,.3)" }} />
-          <aside role="dialog" aria-modal="true" className="dwslide scl fixed bottom-0 right-0 top-0 z-50 w-[360px] max-w-[94vw] overflow-y-auto border-l border-line2 bg-panel" style={{ boxShadow: "-14px 0 40px rgba(40,25,8,.24)" }}>
+          <div onClick={() => setDrawerOpen(false)} className="fixed inset-0 z-50" style={{ background: "rgba(0,0,0,.35)" }} />
+          <aside role="dialog" aria-modal="true" className="dwslide scl fixed bottom-0 right-0 top-0 z-50 w-[360px] max-w-[94vw] overflow-y-auto border-l border-line2 bg-panel" style={{ boxShadow: "-14px 0 40px rgba(0,0,0,.3)" }}>
             <div className="sticky top-0 z-[2] flex items-start gap-2.5 border-b border-line bg-panel px-5 py-4">
               <div className="flex-1"><div className="font-mono text-[0.55rem] uppercase tracking-[0.16em] text-copperdeep">Distribution · transportation</div><div className="display text-xl text-ink">Supply &amp; lanes</div></div>
               <button onClick={() => setDrawerOpen(false)} className="border-none bg-none text-lg text-inksoft">✕</button>
@@ -1159,7 +1244,7 @@ function foundingCityModel(cfg: Config, placed: FoundingPlacement[]): CityModel 
   const dCfg = cfg.modules?.facilities?.districts ?? [];
   const districts: DistrictModel[] = dCfg.map((d) => ({
     key: d.id, label: d.label, arch: ARCH_OF[d.kind] ?? "arts", kind: d.kind,
-    rent: d.rent_mult, out: d.capacity_mult ?? 1, brand: d.brand_boost ?? 0, best: DISTRICT_BEST[d.id] ?? d.blurb ?? "",
+    rent: d.rent_mult, out: d.capacity_mult ?? 1, brand: d.brand_boost ?? 0, traits: DISTRICT_TRAITS[d.id] ?? d.blurb ?? "",
   }));
   const fallback = districts[0]?.key ?? "downtown";
   const homeMkt = cfg.modules?.geography?.markets?.find((m) => m.kind === "home");
@@ -1171,11 +1256,12 @@ function foundingCityModel(cfg: Config, placed: FoundingPlacement[]): CityModel 
     id: "home", name: meta.city, region: meta.region || "Home region", kind: "home",
     entered: true, entryCost: 0, fx: 1, geo: meta.geo, coast: meta.coast, seed: meta.seed, roadEvery: 4,
     districts, mine, rivals: [], segments: [], lots, catchment: cfg.modules?.facilities?.catchment,
+    // Every brewery founds in the home city, so it has rivals before any of their sites are known.
+    rivalIds: Array.from({ length: Math.max(0, (cfg.game?.n_firms ?? 1) - 1) }, (_, i) => `rival_${i}`),
+    retailTypes: retailTypesOf(cfg.modules?.facilities?.types),
   };
 }
 
-const crowdTag = (cr: number): { label: string; color: string } =>
-  cr < 0.25 ? { label: "Blue ocean", color: "var(--color-hop)" } : cr < 0.9 ? { label: "Some competition", color: "var(--color-gold)" } : { label: "Crowded", color: "var(--color-brick)" };
 
 export function FoundingSiteMap({ cfg, color, placed, sitingType, onPick }: {
   cfg: Config;
@@ -1191,23 +1277,25 @@ export function FoundingSiteMap({ cfg, color, placed, sitingType, onPick }: {
   const model = useMemo(() => foundingCityModel(cfg, placed), [cfg, placed]);
   const plan = useMemo(() => cityPlan(model), [model]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const mode = useMode();
   useEffect(() => {
     const draw = () => { if (canvasRef.current) try { drawCity(canvasRef.current, plan, "map", "you", color); } catch { /* ignore */ } };
     const id = window.setTimeout(draw, 0);
     window.addEventListener("resize", draw);
     return () => { clearTimeout(id); window.removeEventListener("resize", draw); };
-  }, [plan, color]);
+  }, [plan, color, mode]);
 
   const dByKey = (k: string) => model.districts.find((d) => d.key === k);
   const zoneOf = (kind?: string) => ZONE_OF[kind ?? ""] ?? { zone: "", allow: [] as string[] };
   const allowsType = (kind?: string) => !sitingType || zoneOf(kind).allow.includes(sitingType);
-  // Recommended home for the type being sited: the best-fit zoning-permitted district that still
-  // has a free parcel (falls through to the next district if the best one is full).
-  const ranked = t ? rankDistrictsForType(t, dCfg) : [];
+  // 11-09 (Devin): no recommended district or "BEST" parcel — the cards and parcels state the facts
+  // (zoning, rent, output, brand) and players decide what suits the site.
   const freeLotsIn = (key: string) => plan.leases.filter((L) => L.district === key);
-  const recDistrict = ranked.find((d) => freeLotsIn(d.id).length > 0)?.id ?? ranked[0]?.id ?? null;
-  const recLot = recDistrict ? (freeLotsIn(recDistrict).slice().sort((a, b) => a.crowd - b.crowd)[0]?.lot ?? null) : null;
 
+  // The honest read for the type being sited (lib/crowd.ts): your placed sites crowd your own retail;
+  // every other brewery opens in this city too, so no parcel reads "Blue ocean" at founding.
+  const ownSites = citySites(model, plan.facilities.map((f) => ({ x: f.cx, y: f.cy, type: f.type, district: f.district })), []);
+  const readLot = (L: { cx: number; cy: number; district: string }) => crowdRead({ x: L.cx, y: L.cy, district: L.district }, ownSites, model.catchment, model.rivalIds.length, t ? model.retailTypes.includes(t.id) : true);
   const pickLot = (lot: string, district: string) => { if (allowsType(dByKey(district)?.kind)) onPick({ lot, district }); };
   const pickDistrict = (key: string) => {
     if (!allowsType(dByKey(key)?.kind)) return;
@@ -1227,13 +1315,13 @@ export function FoundingSiteMap({ cfg, color, placed, sitingType, onPick }: {
           <span className="text-sm italic text-inksoft">{t ? `Siting your ${t.label.toLowerCase()}` : "Your footprint"}</span>
         </div>
         <div className="card relative w-full overflow-visible p-0" style={{ aspectRatio: "1000 / 680" }}>
-          <div className="absolute inset-0 overflow-visible rounded-[14px]" style={{ background: PAL.mapbg }}>
+          <div className="absolute inset-0 overflow-visible rounded-[14px]" style={{ background: "var(--map-bg)" }}>
             <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block", borderRadius: 14 }} />
 
             {/* district labels + rent/output chips */}
             {plan.districts.map((d) => { const ec = dByKey(d.key); if (!ec) return null; const p = pct(d.cx, d.cy, 60, "map"); const ok = allowsType(ec.kind); return (
               <div key={d.key} className="pointer-events-none absolute z-[4] flex flex-col items-center gap-0.5" style={{ left: `${p.l}%`, top: `${p.t}%`, transform: "translate(-50%,-100%)", opacity: ok ? 1 : 0.4 }}>
-                <div className="display whitespace-nowrap text-[0.8rem] tracking-[0.1em]" style={{ color: "rgba(44,29,17,.78)", textShadow: `0 1px 3px ${PAL.mapbg}, 0 0 6px ${PAL.mapbg}` }}>{ec.label}</div>
+                <div className="display whitespace-nowrap text-[0.8rem] tracking-[0.1em]" style={{ color: "var(--map-ink)", textShadow: "0 1px 3px var(--map-halo), 0 0 6px var(--map-halo)" }}>{ec.label}</div>
                 <div className="flex items-center gap-1">
                   <span className="rounded border border-line bg-panel/90 px-1 py-px font-mono text-[0.55rem]" style={{ color: ec.rent > 1.05 ? "var(--color-brick)" : ec.rent < 0.95 ? "var(--color-hop)" : "var(--color-inksoft)" }} title="Rent multiplier on upkeep">R×{ec.rent.toFixed(2)}</span>
                   <span className="rounded border border-line bg-panel/90 px-1 py-px font-mono text-[0.55rem]" style={{ color: ec.out > 1.02 ? "var(--color-hop)" : ec.out < 0.98 ? "var(--color-brick)" : "var(--color-inksoft)" }} title="Output multiplier">O×{ec.out.toFixed(2)}</span>
@@ -1243,40 +1331,46 @@ export function FoundingSiteMap({ cfg, color, placed, sitingType, onPick }: {
             ); })}
 
             {/* FOR-LEASE parcels — click to site the selected facility here */}
-            {hasLots && plan.leases.map((L, i) => { const p = pct(L.cx, L.cy, 0, "map"); const ec = dByKey(L.district); const z = zoneOf(ec?.kind); const ct = crowdTag(L.crowd); const ok = allowsType(ec?.kind); const isRec = L.lot === recLot; return (
-              <button key={i} onClick={() => pickLot(L.lot, L.district)} disabled={!ok} title={ok ? `Lease in ${ec?.label ?? L.district} · ${ct.label}${isRec ? " · recommended" : ""}` : `${t?.label ?? "This type"} can't be zoned in ${ec?.label ?? L.district}`} className="absolute z-[5] cursor-pointer border-none bg-none p-0 disabled:cursor-not-allowed" style={{ left: `${p.l}%`, top: `${p.t}%`, transform: "translate(-50%,-100%)", opacity: ok ? 1 : 0.32 }}>
-                <span className="block rounded-t-[3px] border px-1.5 py-0.5 font-mono text-[0.5rem] font-bold uppercase tracking-wide text-white" style={{ background: isRec && ok ? "var(--color-hop)" : "var(--color-copperdeep)", borderColor: "#6e3914", boxShadow: isRec && ok ? "0 0 0 2px color-mix(in srgb, var(--color-hop) 50%, transparent)" : undefined }}>{isRec && ok ? "BEST" : "FOR LEASE"}</span>
-                <span className="flex items-center justify-center gap-0.5 rounded-b-[3px] border border-t-0 px-1 py-px text-center font-mono text-[0.44rem] font-bold uppercase text-copperdeep" style={{ background: "#f3e6c8", borderColor: "#6e3914" }}><span className="h-1.5 w-1.5 rounded-full" style={{ background: ct.color }} />{z?.zone ?? ""}</span>
-                <span className="mx-auto block h-2 w-px" style={{ background: "#6e3914" }} />
+            {hasLots && plan.leases.map((L, i) => { const p = pct(L.cx, L.cy, 0, "map"); const ec = dByKey(L.district); const z = zoneOf(ec?.kind); const ct = readLot(L); const ok = allowsType(ec?.kind); return (
+              <button key={i} onClick={() => pickLot(L.lot, L.district)} disabled={!ok} title={ok ? `Lease in ${ec?.label ?? L.district} · ${ct.label}` : `${t?.label ?? "This type"} can't be zoned in ${ec?.label ?? L.district}`} className="absolute z-[5] cursor-pointer border-none bg-none p-0 disabled:cursor-not-allowed" style={{ left: `${p.l}%`, top: `${p.t}%`, transform: "translate(-50%,-100%)", opacity: ok ? 1 : 0.32 }}>
+                <span className="block rounded-t-[3px] border px-1.5 py-0.5 font-mono text-[0.5rem] font-bold uppercase tracking-wide text-white" style={{ background: "var(--color-copperdeep)", borderColor: "var(--map-lease-edge)" }}>FOR LEASE</span>
+                <span className="flex items-center justify-center gap-0.5 rounded-b-[3px] border border-t-0 px-1 py-px text-center font-mono text-[0.44rem] font-bold uppercase text-copperdeep" style={{ background: "var(--color-panel)", borderColor: "var(--map-lease-edge)" }}><span className="h-1.5 w-1.5 rounded-full" style={{ background: ct.color }} />{z?.zone ?? ""}</span>
+                <span className="mx-auto block h-2 w-px" style={{ background: "var(--map-lease-edge)" }} />
               </button>
             ); })}
 
             {/* already-placed founding facilities */}
             {plan.facilities.map((f) => { const p = pct(f.cx, f.cy, f.h, "map"); const ec = dByKey(f.district); const tt = typeOf(f.type); return (
-              <div key={f.id} title={`${tt?.label ?? f.type} · ${ec?.label ?? f.district}`} className="pointer-events-none absolute z-[7] flex flex-col items-center" style={{ left: `${p.l}%`, top: `${p.t}%`, transform: "translate(-50%,-100%)", filter: "drop-shadow(0 3px 5px rgba(40,25,8,.32))" }}>
-                <FacilityChip type={f.type} color={color} size={30} mine style={{ outline: "2px dashed #7e3f18", outlineOffset: 1 }} />
+              <div key={f.id} title={`${tt?.label ?? f.type} · ${ec?.label ?? f.district}`} className="pointer-events-none absolute z-[7] flex flex-col items-center" style={{ left: `${p.l}%`, top: `${p.t}%`, transform: "translate(-50%,-100%)", filter: "drop-shadow(0 3px 6px rgba(0,0,0,.35))" }}>
+                <FacilityChip type={f.type} color={color} size={30} mine style={{ outline: "2px dashed var(--color-copperdeep)", outlineOffset: 1 }} />
               </div>
             ); })}
           </div>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-inksoft">
           <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: color }} />Your sites</span>
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px] border border-dashed border-copperdeep" style={{ background: "rgba(224,165,47,.32)" }} />For lease</span>
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px] border border-dashed border-copperdeep" style={{ background: "color-mix(in srgb, var(--color-copper) 32%, transparent)" }} />For lease</span>
           <span className="flex-1" />
           <span className="italic">{hasLots ? "Tap a parcel — or a district card — to site it" : "Tap a district to site it"}</span>
         </div>
+        {/* 11-09: the honest read at founding — every brewery opens here, so no parcel is a blue ocean */}
+        {hasLots && model.rivalIds.length > 0 && (
+          <div data-dw="founding-crowd" className="mt-1 flex items-start gap-1.5 text-[0.78rem] leading-snug text-inksoft">
+            <span className="mt-[5px] h-2 w-2 flex-none rounded-full" style={{ background: "var(--color-gold)" }} />
+            <span>All {model.rivalIds.length + 1} breweries open in {model.name}, so every parcel faces some competition for its shoppers. Rivals' sites show on the map after round 1{model.retailTypes.length ? "; shops close to each other split their foot traffic" : ""}.</span>
+          </div>
+        )}
       </div>
 
-      {/* district tradeoff cards — the rent/output/brand economics, best fit first */}
+      {/* district trade-off cards — zoning, rent, output, brand: facts, in the config's order (no "best fit" ranking, 11-09) */}
       <div className="grid content-start gap-2">
-        <div className="eyebrow">{t ? "Best fit for this facility" : "The districts"}</div>
-        {(t ? [...model.districts].sort((a, b) => districtFitScore(t, dCfg.find((d) => d.id === b.key)!) - districtFitScore(t, dCfg.find((d) => d.id === a.key)!)) : model.districts).map((d) => {
-          const ok = allowsType(d.kind); const isRec = d.key === recDistrict; const free = freeLotsIn(d.key).length;
+        <div className="eyebrow">{t ? `Districts · where a ${t.label.toLowerCase()} is allowed` : "The districts"}</div>
+        {model.districts.map((d) => {
+          const ok = allowsType(d.kind); const free = freeLotsIn(d.key).length;
           return (
-            <button key={d.key} onClick={() => pickDistrict(d.key)} disabled={!ok || (hasLots && free === 0)} title={ok ? d.best : `Not zoned for ${t?.label ?? "this type"}`} className="rounded-xl border p-2.5 text-left transition-colors disabled:opacity-45" style={{ borderColor: isRec && ok ? "var(--color-hop)" : "var(--color-line2)", background: isRec && ok ? "color-mix(in srgb, var(--color-hop) 8%, var(--color-panel))" : "var(--color-panel)" }}>
+            <button key={d.key} onClick={() => pickDistrict(d.key)} disabled={!ok || (hasLots && free === 0)} title={ok ? d.traits : `Not zoned for ${t?.label ?? "this type"}`} className="rounded-xl border p-2.5 text-left transition-colors disabled:opacity-45" style={{ borderColor: "var(--color-line2)", background: "var(--color-panel)" }}>
               <div className="flex items-center gap-1.5">
                 <span className="display text-[0.95rem] text-ink">{d.label}</span>
-                {isRec && ok && <span className="rounded-full px-1.5 py-px font-mono text-[0.5rem] font-bold uppercase tracking-wide text-white" style={{ background: "var(--color-hop)" }}>Best</span>}
                 <span className="flex-1" />
                 {hasLots && <span className="font-mono text-[0.55rem] text-inksoft">{free} open</span>}
               </div>
@@ -1285,7 +1379,7 @@ export function FoundingSiteMap({ cfg, color, placed, sitingType, onPick }: {
                 <span className="rounded border border-line px-1 py-px font-mono text-[0.55rem]" style={{ color: d.out > 1.02 ? "var(--color-hop)" : d.out < 0.98 ? "var(--color-brick)" : "var(--color-inksoft)" }}>Output ×{d.out.toFixed(2)}</span>
                 {d.brand > 0 && <span className="rounded border border-line px-1 py-px font-mono text-[0.55rem] text-aero">Brand +{d.brand}</span>}
               </div>
-              <div className="mt-1 text-[0.68rem] leading-snug text-inksoft">{ok ? d.best : `Zoning doesn't allow a ${t?.label.toLowerCase() ?? "facility"} here.`}</div>
+              <div className="mt-1 text-[0.68rem] leading-snug text-inksoft">{ok ? d.traits : `Zoning doesn't allow a ${t?.label.toLowerCase() ?? "facility"} here.`}</div>
             </button>
           );
         })}

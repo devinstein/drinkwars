@@ -38,9 +38,11 @@ test("the CFO's card states the bank's, the investors' and the overdraft's limit
   assert.ok(card, "the card is there");
   const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
   const fin = { finance: v.finance! };
-  assert.match(card.read, new RegExp(`the bank lends up to \\${money(creditCapacity(v.own, fin))}`));
-  assert.match(card.read, new RegExp(`investors put in up to \\${money(equityCapacity(v.own, fin))}`));
-  assert.match(card.read, new RegExp(`emergency overdraft covers up to \\${money(overdraftLimit(v.own, fin))}`));
+  // 11-07 readability pass: the limits ride as label → value rows under the cash, not a sentence.
+  const row = (k: string) => card.rows?.find((r) => r.k === k)?.v ?? "";
+  assert.equal(row("Bank lends up to"), money(creditCapacity(v.own, fin)));
+  assert.equal(row("Investors put in up to"), money(equityCapacity(v.own, fin)));
+  assert.match(row("Emergency overdraft up to"), new RegExp(`^\\${money(overdraftLimit(v.own, fin))} · at a penalty rate$`)); // 11-09 copy pass
 });
 
 test("the COO's 'Turned away' card: only a sold-out firm, only material, only inside its own markets", async () => {
@@ -69,7 +71,7 @@ test("the COO's 'Turned away' card: only a sold-out firm, only material, only in
   const spare = signals(0.9, big).find((x) => x.label === "Capacity in the wrong place");
   assert.ok(spare, labels(0.9, big).join(", "));
   assert.match(spare!.read, /units stood idle/);
-  assert.match(spare!.read, /Shift capacity toward/);
+  assert.match(spare!.read, /Moving that capacity toward/); // 11-09 copy pass
   assert.ok(signals(0.52, 3 * big).some((x) => x.label === "Capacity in the wrong place"), "52% utilization, big sell-out ⇒ wrong place");
   assert.equal(fire(0.97, Math.max(0.1 * sold, 1_000) - 1), false, "a sliver ⇒ no card");
   // Sold out in one category while selling rivals' overflow in another: an allocation problem, not a tank one.
@@ -77,7 +79,7 @@ test("the COO's 'Turned away' card: only a sold-out firm, only material, only in
   assert.ok(split.includes("Capacity in the wrong place") && !split.includes("Turned away"), split.join(", "));
   const tanks = signals(0.97, 3 * big, big).find((x) => x.label === "Turned away");
   assert.ok(tanks, "a net shortfall past the floor is still a capacity case");
-  assert.match(tanks!.read, /even after pointing the [\d,]+ units you had spare elsewhere at them/);
+  assert.match(tanks!.read, /even counting the [\d,]+ units you had spare elsewhere/);
   // Demand in markets the firm never entered isn't in `turnedAway` at all — the old card read q_desired − sold.
   v.ownResult = { ...v.ownResult!, effective_cap: sold / 0.97 };
   v.sizing = { ...s, turnedAway: 0, caught: 0, rows: s.rows.map((r) => ({ ...r, turnedAway: 0, caught: 0 })), cats: s.cats.map((c) => ({ ...c, turnedAway: 0, caught: 0 })) };
@@ -93,7 +95,7 @@ test("the CFO's 'Credit' card says what the engine does: repriced on a covenant 
   const credit = () => cockpitSignals("finance", v).find((x) => x.label === "Credit");
   v.ownResult = { ...v.ownResult!, cost_of_capital: { ...v.ownResult!.cost_of_capital, credit_rationed: true, coverage: fin.coverage_threshold - 0.1 } };
   const breach = credit()!;
-  assert.equal(breach.value, "Penalty grid");
+  assert.equal(breach.value, "Penalty rate"); // 11-09 copy pass
   assert.match(breach.read, new RegExp(`still lends up to \\${money(creditCapacity(v.own, { finance: fin }))}`), breach.read);
   v.ownResult = { ...v.ownResult, cost_of_capital: { ...v.ownResult.cost_of_capital, coverage: 5 } };
   assert.equal(credit()!.value, "Capped", "flagged with healthy cover ⇒ the leverage cap cut last quarter's draw");
@@ -135,7 +137,7 @@ test("the Tanks card's outlook is the engine's rule: this quarter brews on cap �
   v1.ownResult = { ...v1.ownResult!, effective_cap: sold / 0.99 };
   v1.sizing = { ...s, turnedAway: 0.5 * sold, caught: 0, idle: 0, rows: s.rows.map((r, i) => ({ ...r, turnedAway: i === 0 ? 0.5 * sold : 0, caught: 0, idle: 0 })), cats: s.cats.map((c, i) => ({ ...c, turnedAway: i === 0 ? 0.5 * sold : 0, caught: 0, idle: 0 })) };
   const card = cockpitSignals("operations", v1).find((x) => x.label === "Turned away")!;
-  assert.match(card.read, new RegExp(`The ${Math.round(order * cc.gain).toLocaleString("en-US")} units you ordered earlier come online this quarter first`), card.read);
+  assert.match(card.read, new RegExp(`The ${Math.round(order * cc.gain).toLocaleString("en-US")} units you ordered earlier arrive this quarter first`), card.read); // 11-09 copy pass
 });
 
 test("the Round Table's cash check counts the financing the bank will grant, not the raw ask", async () => {

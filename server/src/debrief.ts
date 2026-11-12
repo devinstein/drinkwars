@@ -126,7 +126,7 @@ function cards(rich: boolean): DebriefCards {
 }
 
 /** The name a firm shows under on the dashboard (= InstructorDashboard shortName). */
-export const debriefName = (t: { name: string; joined?: boolean }): string => (t.joined ?? true ? t.name : t.name.replace(/^Open slot/i, "NPC"));
+export const debriefName = (t: { name: string; joined?: boolean }): string => (t.joined ?? true ? t.name : t.name.replace(/^Open slot/i, "Bot"));
 /** Resolved wire rounds present in the payload, ascending. */
 export const debriefRounds = (j: Pick<InstructorDashboard, "panel">): number[] => [...new Set(j.panel.map((p) => p.round))].sort((a, b) => a - b);
 

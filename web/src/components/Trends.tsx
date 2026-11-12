@@ -48,7 +48,8 @@ export function Trends({ view }: { view: GameView }) {
     { label: "Field median", color: HOP, data: h.map((r) => r.field.medianScore) },
   ];
   const cashSeries: Series[] = [{ label: "Cash", color: COPPER, data: h.map((r) => r.own.cash) }];
-  const shareSeries: Series[] = [{ label: "Total share", color: COPPER, data: h.map((r) => r.own.share) }];
+  // 11-07: share of all drinks sold (own.share adds category shares together — 25% + 25% read as 50%)
+  const shareSeries: Series[] = [{ label: "Share of drinks sold", color: COPPER, data: h.map((r) => (r.field.totalQ > 0 ? (r.own.unitsSold ?? 0) / r.field.totalQ : r.own.share)) }];
   const qbSeries: Series[] = [
     { label: "Recipe quality", color: HOP, data: h.map((r) => r.own.Q) },
     { label: "Brand", color: GOLD, data: h.map((r) => r.own.B) },
@@ -111,7 +112,7 @@ export function Trends({ view }: { view: GameView }) {
             <div className="mb-2 text-[0.72rem] text-inksoft">The same figures as Statements &amp; Ratios, drawn. Read the sheets first; use these to see the shape.</div>
             <div className="grid gap-5 lg:grid-cols-2">
               <div><Cap title="P&amp;L bridge">The income statement walked from revenue down to net income, one step per cost. Read it to see <b>which</b> cost took the money — a bridge makes a fat overhead or a heavy interest bill obvious in a way a column of numbers does not.</Cap><PnLBridge pnl={r.pnl} /></div>
-              <div><Cap title="Cash bridge">Opening cash to closing cash, through operating, investing and financing. This is where profit and cash come apart: depreciation is a cost that takes no cash, capex takes cash that is not a cost, and a profitable quarter can still drain the account.</Cap><CashBridge cash={r.cash_flow} opening={r.balance_sheet.cash - r.cash_flow.delta_cash} /></div>
+              <div><Cap title="Cash bridge">Opening cash to closing cash, through operating, investing and financing. This is where profit and cash come apart: depreciation is a cost that takes no cash, spending on tanks and sites takes cash but is not a cost this quarter, and a profitable quarter can still drain the account.</Cap><CashBridge cash={r.cash_flow} opening={r.balance_sheet.cash - r.cash_flow.delta_cash} /></div>
               {you && <div><Cap title="DuPont — return on equity decomposed">Return on equity split into the three things that produce it: <b>margin</b> (profit per sales dollar) × <b>asset turnover</b> (sales per dollar of assets) × <b>leverage</b> (assets per dollar of equity). Two firms can post the same ROE for completely different reasons — one earning it, one borrowing it — and this is the chart that tells them apart. Leverage flatters ROE right up until the quarter it doesn't.</Cap><DuPont you={you} result={r} field={view.firms.filter((f) => !f.isYou)} /></div>}
               <div><Cap title="Cost of capital">What your lender charges and the two ratios that set it. The <b>?</b> beside the rate breaks down how leverage and coverage move the price of your debt.</Cap><CostOfCapitalCockpit coc={r.cost_of_capital} finance={view.finance} /></div>
               <div><Cap title="Economic value added">Net income less a rent on the owners' capital tied up in the business, charged at the going borrowing rate. Accounting profit asks "did we make money?"; EVA asks the harder question — <b>did we make more than this capital could have earned elsewhere?</b> A positive bar is real value created. A small profit on a large balance sheet shows up here as a negative bar, and that is the point of the measure.</Cap><EvaBars history={h} finance={view.finance} /></div>

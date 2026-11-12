@@ -222,9 +222,9 @@ export const defaultModules: ModulesConfig = {
     // (max output) with no brand halo (a production play). Suburbs: roomy & affordable,
     // a mild output edge, quiet trade. Tunable with play-test data.
     districts: [
-      { id: "downtown", label: "Downtown", kind: "downtown", rent_mult: 1.35, capacity_mult: 0.85, brand_boost: 3, blurb: "High foot traffic and visibility — premium rent, cramped space, but a big brand draw. Best for a taproom." },
+      { id: "downtown", label: "Downtown", kind: "downtown", rent_mult: 1.35, capacity_mult: 0.85, brand_boost: 3, blurb: "High foot traffic and visibility — premium rent, cramped space, but a big brand draw." },
       { id: "riverside", label: "Riverside", kind: "riverside", rent_mult: 1.1, capacity_mult: 1.0, brand_boost: 1.5, blurb: "Characterful and walkable — moderate rent and a steady brand draw." },
-      { id: "southside", label: "South Side", kind: "industrial", rent_mult: 0.75, capacity_mult: 1.2, brand_boost: 0, blurb: "Cheap industrial yards with easy logistics — most output per facility, no brand halo. Best for production." },
+      { id: "southside", label: "South Side", kind: "industrial", rent_mult: 0.75, capacity_mult: 1.2, brand_boost: 0, blurb: "Cheap industrial yards with easy logistics — most output per facility, no brand halo." },
       { id: "suburbs", label: "The Suburbs", kind: "suburban", rent_mult: 0.95, capacity_mult: 1.05, brand_boost: 0, blurb: "Roomy and affordable with a little extra room to run — quieter trade, no brand draw." },
     ],
     // Phase 2 spatial cannibalization. Noticeable by default (beta_loc 1.0): a blue-ocean lot
@@ -460,7 +460,7 @@ export const MODULE_REGISTRY: ModuleMeta[] = [
   },
   {
     id: "marketConduct", code: "MOD-A10", tier: "A", category: "society", name: "Market conduct & stakeholder backlash",
-    blurb: "Dominate and gouge — especially on thin quality — and you draw consumer-protection fines + brand backlash, unless regulatory goodwill (T_gov) and reputation buffer you.",
+    blurb: "Dominate and gouge — especially on thin quality — and you draw consumer-protection fines + brand backlash, unless regulator goodwill and reputation buffer you.",
     pedagogy: "Stakeholder theory, market power & antitrust, non-market risk, license to operate, reputation as insurance.",
     deps: [], implemented: true,
   },
@@ -480,7 +480,7 @@ export interface Preset {
 /** Preset library (spec §3). Deferred modules (A01 communication, A10 scenario
  *  planning) and Tier C are excluded; presets list only Tier A/B ids. */
 export const PRESETS: Preset[] = [
-  { id: "base", name: "Strategy core", description: "The v1 base game — fundamentals only, nothing added.", audience: "Any capstone", modules: [] },
+  { id: "base", name: "Strategy core", description: "The base game — fundamentals only, nothing added.", audience: "Any capstone", modules: [] },
   { id: "org", name: "Org & stakeholders", description: "Collective action, resilience, asymmetric starts, talent, reputation, and stakeholder/regulatory backlash against market-power abuse.", audience: "OB / HR / stakeholder management", modules: ["publicGoods", "sustainability", "asymmetricStarts", "employees", "reputation", "marketConduct"] },
   { id: "finance", name: "Financial strategy", description: "Contracting flexibility, M&A, financing instruments, inventory, reputation.", audience: "Finance / corporate finance", modules: ["contingentContracts", "renegotiation", "ma", "financialInstruments", "inventory", "reputation"] },
   { id: "marketing", name: "Market dynamics", description: "PR events, asymmetric starts, consumer drift, R&D races.", audience: "Marketing strategy", modules: ["prEvents", "asymmetricStarts", "consumerDrift", "rndRace"] },

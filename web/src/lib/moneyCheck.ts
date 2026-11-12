@@ -64,13 +64,13 @@ export function moneyOutcome(view: GameView, plan: FirmDecision, infoCost: numbe
   const m = fmt.money, n = fmt.int;
   const lines: string[] = [];
   if (loan) lines.push(loan.lent < 0.5
-    ? `Loan: the bank won't lend this quarter (${loan.why}), so none of the ${m(loan.asked)} asked arrives.`
-    : `Loan: the bank lends ${m(loan.lent)} of the ${m(loan.asked)} asked (${loan.why}).`);
+    ? `Loan: the bank won't lend this quarter (${loan.why}). None of the ${m(loan.asked)} you asked for arrives.`
+    : `Loan: the bank lends ${m(loan.lent)} of the ${m(loan.asked)} you asked for (${loan.why}).`);
   if (equity) lines.push(equity.raised < 0.5
-    ? `Equity: no investor will buy in this quarter, so none of the ${m(equity.asked)} asked arrives.`
-    : `Equity: investors put in ${m(equity.raised)} of the ${m(equity.asked)} asked (at most part of your valuation each quarter).`);
+    ? `Equity: no investor will buy in this quarter. None of the ${m(equity.asked)} you asked for arrives.`
+    : `Equity: investors put in ${m(equity.raised)} of the ${m(equity.asked)} you asked for. Each quarter they invest at most a set share of what the firm is worth.`);
   if (cuts.length && guard) {
-    lines.push(`This plan spends ${m(spend)}, but cash and the financing you'll get cover ${m(guard.sources)}${guard.reserve >= 0.5 ? `, once ${m(guard.reserve)} is set aside for this quarter's running costs` : ""}. Submitted as it is, the round cuts:`);
+    lines.push(`This plan spends ${m(spend)}. Your cash and the financing you'll get cover ${m(guard.sources)}${guard.reserve >= 0.5 ? `, after ${m(guard.reserve)} is set aside for this quarter's running costs` : ""}. If you submit it as it is, the round cuts:`);
     for (const x of cuts) {
       if (x.kind === "tanks" && tank) lines.push(tank.kept >= 0.5
         ? `Tank order: ${m(x.asked)} → ${m(x.kept)}. That adds ${n(tank.unitsKept)} units of capacity ${when}, not ${n(tank.unitsAsked)}.`

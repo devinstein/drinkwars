@@ -27,7 +27,10 @@ export type { AffordabilityResult, GuardCut, GuardItemKind } from "./engine/affo
 export { resilienceMitigation, rollTimeline } from "./engine/shocks.js";
 export { activeMarkets, segmentDemandTotals } from "./engine/geography.js";
 export { roleBriefings } from "./engine/briefings.js";
-export type { RoleBriefing } from "./engine/briefings.js";
+export { eventAudience, visibleEvents, pactParties, type EventAudience } from "./engine/visibility.js"; // 11-09: one privacy rule for every surface
+export { projectResearch, npsOf, healthBand, researchReports, researchEstimate } from "./engine/research.js";
+export type { ResearchView, ResearchRetailRow, ResearchSurveyRow, ResearchAnalystRow, HealthBand, Range as ResearchRange } from "./engine/research.js";
+export type { RoleBriefing, BriefingData } from "./engine/briefings.js";
 // Coopetition (MOD-A05/A06) + lobbying (MOD-A09) presentation summaries.
 export { summarizeAgreementsFor, summarizeLobbying, projectMarkets, projectMarketSizing, projectFirms, projectShocks, projectHistory } from "./engine/views.js";
 export { roundIsScored, inContention, rankStandings, compareStanding, PROFITABILITY_CLAMP } from "./engine/scoring.js";

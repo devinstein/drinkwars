@@ -34,22 +34,7 @@ export function renameFirms(text: string, names: Record<string, string>): string
   return text.replace(/firm_\d+/g, (id) => names[id] ?? id);
 }
 
-/** DW-071: news that is one firm's private business — the size of an equity raise investors
- *  refused or trimmed, a hire it couldn't pay for. It reveals a valuation at or below zero and
- *  cash below a known line, which rivals otherwise only learn by buying research. Only the firm
- *  it names sees it; the instructor dashboard reads the full event list and keeps it all. */
-// DW-083: the bank's answer (CREDIT, CREDIT REFUSED), a repayment the cash couldn't cover, the
-// affordability guard's cuts (BLOCKED), an emergency overdraft and a purchase it couldn't fund are the
-// same kind of news — each reveals a balance sheet rivals otherwise pay research to see.
-const OWN_ONLY = /^(EQUITY|EQUITY MARKET CLOSED|HIRE FAILED|CREDIT|CREDIT REFUSED|REPAYMENT CUT|BLOCKED|OVERDRAFT|OVERDRAFT EXHAUSTED|PURCHASE FAILED):/;
-/** DW-080: what a firm LOST with a person — the loyalty / tenure tail on a POACHED or DEPARTURE line
- *  ("— took 4 quarters of built-up loyalty (+16% contribution)") — is that firm's private read on
- *  its own people (DW-075). Rivals, the poacher included, see the move; only the firm it left sees
- *  the cost. */
-const PRIVATE_TAIL = /(?:\s+[—-]|;)\s+took \d+ quarters? of built-up (?:loyalty|tenure) \(\+\d+% (?:contribution|bonus)\)$/;
-const victimOf = (e: string): string | null => (e.match(/away from (firm_\d+)/) ?? e.match(/quits (firm_\d+)/) ?? e.match(/^DEPARTURE: (firm_\d+)'s/))?.[1] ?? null;
-export function visibleEvents(events: string[], ownFirmId: string | null | undefined): string[] {
-  return events
-    .filter((e) => !OWN_ONLY.test(e) || (!!ownFirmId && new RegExp(`\\b${ownFirmId}\\b`).test(e)))
-    .map((e) => (/^(POACHED|DEPARTURE):/.test(e) && victimOf(e) !== ownFirmId ? e.replace(PRIVATE_TAIL, "") : e));
-}
+/** DW-071 / 11-09: who may read each round event now lives in the engine (`engine/src/engine/visibility.ts`),
+ *  one rule shared by solo play, this transport and the edge function. Re-exported here so existing
+ *  imports (`./names.js`, edge-core) keep working. */
+export { visibleEvents, pactParties } from "drinkwars-engine";

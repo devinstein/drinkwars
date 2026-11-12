@@ -126,7 +126,7 @@ const cfoT = await text(cfo);
 ok(/1 lever locks at a teammate's number/i.test(cfoT) && /Dividend\s*\n\s*CEO changed this; you left it at last round's value\s*\n\s*Locks\s*\n\s*\$40,000\s*\n\s*Your form\s*\n\s*\$0/i.test(cfoT), "CFO's panel: Dividend locks at the CEO's $40,000 — 'CEO changed this; you left it at last round's value'", cfoT.match(/1 lever locks[\s\S]{0,260}/i)?.[0]?.replace(/\n+/g, " | ").slice(0, 260));
 ok(/Your form alone would give/.test(cfoT) && /Locks at \$40,000 · CEO changed it; you left it/i.test(cfoT), "CFO's dial shows the form-alone cash, and the dividend input is captioned 'Locks at $40,000'", cfoT.match(/Your form alone[^\n]*/)?.[0]);
 ok(/my desk[^\n]*1 lever follows teammates/i.test(cfoT) && /Take the CEO's numbers/i.test(cfoT) && /Keep mine/i.test(cfoT), "CFO's submit label counts '1 lever follows teammates'; Take the CEO's numbers / Keep mine offered", cfoT.match(/[^\n]*my desk[^\n]*/i)?.[0]);
-ok(await cfo.evaluate(() => { const i = [...document.querySelectorAll("input[type=number]")].find((x) => /dividend/i.test(x.parentElement?.parentElement?.innerText ?? "")); return !!i && /\(168, 63, 44\)|\(216, 106, 82\)/.test(getComputedStyle(i).borderColor); }), "the dividend input carries the red 'locks at a teammate's number' border");
+ok(await cfo.evaluate(() => { const i = [...document.querySelectorAll("input[type=number]")].find((x) => /dividend/i.test(x.parentElement?.parentElement?.innerText ?? "")); /* the theme's own red, resolved live (was the editorial skin's two RGB values, which broke on the glass re-skin) */ const probe = document.createElement("span"); probe.style.color = "var(--color-brick)"; document.body.append(probe); const red = getComputedStyle(probe).color; probe.remove(); return !!i && getComputedStyle(i).borderColor === red; }), "the dividend input carries the red 'locks at a teammate's number' border");
 // CFO takes the CEO's number → the form matches the team's plan
 await clickText(cfo, "Take the CEO's numbers");
 await sleep(300);
@@ -173,10 +173,8 @@ ok(/2 levers lock at a teammate's number, not yours/i.test(ceoT) && /Dividend\s*
 ok(/Locks at \$40,000 · CFO Ben Cfo's desk/i.test(ceoT), "CEO's dividend input is captioned with the CFO's locking number", ceoT.match(/Locks at \$40,000[^\n]*/i)?.[0]);
 // DW-081 (playtest 10-19): the CFO's price cover is named in the CEO's panel, never copied into the CEO's boxes
 const ceoPrices = await ceo.evaluate(() => {
-  const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  let n = null; while (w.nextNode()) if (/Set your price in each category/.test(w.currentNode.nodeValue ?? "")) { n = w.currentNode.parentElement; break; }
-  while (n && !n.querySelector("input[type=number]")) n = n.parentElement;
-  return n ? [...n.querySelectorAll("input[type=number]")].map((i) => Number(i.value)) : [];
+  // 11-07: the pricing card is one production line per category ([data-dw-line]); its inputs are the price boxes.
+  return [...document.querySelectorAll("[data-dw-line] input[type=number]")].map((i) => Number(i.value));
 });
 ok(ceoPrices.length > 0 && Math.abs(ceoPrices[0] - ceoDec.price[seg]) < 0.005 && Math.abs(ceoPrices[0] - cfoSeatPrice) > 0.005 && /Locks at [^\n]*· CFO Ben Cfo covers the empty CMO chair/i.test(ceoT), "the CEO's own price box keeps the CEO's number; the caption says the CFO's cover locks", JSON.stringify({ ceoPrices, standing: ceoDec.price[seg], cfoTyped: cfoSeatPrice, caption: ceoT.match(/Locks at [^\n]*CMO chair[^\n]*/i)?.[0] }));
 // DW-060 (kept by DW-077): the dividend sits on the CFO's OWN desk, so the CEO gets a notification,
@@ -187,7 +185,7 @@ ok(ceoPrices.length > 0 && Math.abs(ceoPrices[0] - ceoDec.price[seg]) < 0.005 &&
 // the BUTTON, not the words — cover rows now say "change it, or Keep mine"
 const ceoKeep = await ceo.evaluate(() => [...document.querySelectorAll("button")].some((b) => /^\s*Keep mine\s*$/i.test(b.textContent ?? "") && b.getClientRects().length > 0));
 const ceoCover = await has(ceo, /(set this for the empty [A-Z]+ desk|covers the (empty )?[A-Z]+ chair)[^\n]*· theirs/);
-ok(!(await has(ceo, /Take theirs|Take the CEO|Got it|OK, keep theirs/)) && (!ceoKeep || ceoCover) && await has(ceo, /These levers sit on a seated teammate's desk, so their number is used where they changed it/), "CEO gets NO approve/deny on a seated teammate's own lever — a notification with the rule; Keep mine only for an empty-chair cover", JSON.stringify({ take: await has(ceo, /Take theirs|Take the CEO/), gotIt: await has(ceo, /Got it/), okTheirs: await has(ceo, /OK, keep theirs/), keep: ceoKeep, cover: ceoCover, rule: await has(ceo, /These levers sit on a seated teammate's desk, so their number is used where they changed it/) }));
+ok(!(await has(ceo, /Take theirs|Take the CEO|Got it|OK, keep theirs/)) && (!ceoKeep || ceoCover) && await has(ceo, /A seated teammate changed it → theirs runs/), "CEO gets NO approve/deny on a seated teammate's own lever — a notification with the rule; Keep mine only for an empty-chair cover", JSON.stringify({ take: await has(ceo, /Take theirs|Take the CEO/), gotIt: await has(ceo, /Got it/), okTheirs: await has(ceo, /OK, keep theirs/), keep: ceoKeep, cover: ceoCover, rule: await has(ceo, /A seated teammate changed it → theirs runs/) }));
 // ── DW-051 cover: CFO hires for the EMPTY CHRO chair + buys research, AFTER the CEO submitted ──
 const cfoView = await (await fetch(`${API}/view?token=${cfoTok}`)).json();
 const cfoSlice = { ...(cfoView.teamPlan.seats.find((s) => s.me).partial), invest_T_emp: 21000, buy_info: true };

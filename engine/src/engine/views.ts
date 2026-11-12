@@ -13,6 +13,7 @@ import { activeMarkets, marketDemandScale } from "./geography.js";
 import { firmValuation } from "./finance.js";
 import { rankStandings } from "./scoring.js";
 import { regionExposure } from "./shocks.js";
+import { healthBand, researchDraw, researchEstimate, researchReports, researchSd, type HealthBand, type ResearchKey } from "./research.js";
 
 export interface AllianceClauseSummary {
   condition: ClauseCondition;
@@ -132,6 +133,9 @@ export interface MarketLotView { id: string; x: number; y: number; district: str
 export interface MarketCityView {
   id: string; label: string; kind: MarketKind; entered: boolean; entryCost: number; fx: number;
   yourShare: number; segments: MarketSegStanding[]; yourSites: MarketSiteView[]; rivalSites: MarketSiteView[]; lots: MarketLotView[];
+  /** 11-09: rival firms whose beer was on this city's shelves last round (sites or shipments) — public, like a
+   *  store shelf; who sells, never how much. Lets a firm see its competition before it enters. */
+  sellers?: FirmId[];
 }
 
 /**
@@ -170,10 +174,13 @@ export function projectMarkets(
         return { id: s.id, size: Math.round(s.D * marketDemandScale(m, c, world.round)), leader, leaderShare, yourShare };
       });
     let totalQ = 0, yourQ = 0;
+    const sellers: FirmId[] = [];
+    const activeIds = new Set(world.firms.filter((f) => f.status === "active").map((f) => f.id));
     for (const fr of lastFirmResults) {
       const q = fr.markets?.[m.id]?.q_sold ?? 0;
       totalQ += q;
       if (fr.firm_id === firmId) yourQ = q;
+      else if (q > 0 && activeIds.has(fr.firm_id)) sellers.push(fr.firm_id);
     }
     const sitesOf = (f: FirmState): MarketSiteView[] =>
       (f.facilities ?? [])
@@ -200,6 +207,7 @@ export function projectMarkets(
       yourSites: own ? sitesOf(own) : [],
       rivalSites: world.firms.filter((f) => f.id !== firmId && f.status === "active").flatMap(sitesOf),
       lots,
+      sellers,
     };
   });
 }
@@ -383,6 +391,8 @@ export function projectHistory(records: { round: number; result: RoundResult }[]
 // ───────────────────────── per-firm snapshots (research-gated for rivals) ─────────────────────────
 export interface FirmSnapshotView {
   firm_id: FirmId; name: string; status: string; isYou: boolean; score: number; share: number;
+  /** 11-07: this brewery's share of all drinks sold last round (public; `share` above adds category shares together). */
+  soldShare: number;
   Q: number; B: number; cap: number; unitCost: number; T_emp: number; T_inv: number; T_gov: number;
   leverage: number; netIncome: number; priceBySeg: Record<SegmentId, number>; shareBySeg: Record<SegmentId, number>;
   focus: SegmentId[]; cash: number; debt: number; valuation: number; distressRounds: number;
@@ -390,41 +400,66 @@ export interface FirmSnapshotView {
   // DW-075: tenure_rounds + loyalty are OWN-FIRM ONLY — never on a rival, even with research bought.
   employees: { id: string; name: string; role: string; skill: number; satisfaction: number; salary: number; tenure_rounds?: number; loyalty?: number }[];
   facilities: { type: string; location_id?: string; market_id?: string; active: boolean }[];
+  /** 11-07 research reports: this rival's private figures are the survey's and the analyst's ESTIMATES (Q, B,
+   *  capacity, unit cost, stakeholder trust, leverage, valuation, pay and morale); cash, debt and net income
+   *  stay hidden, and `health` is the analyst's band. Absent ⇒ exact (your own firm, or a game before the reports). */
+  estimated?: boolean;
+  health?: HealthBand;
 }
 /** Latest snapshot of every firm. PUBLIC fields (id/name/status/score/share/focus/facilities/
- *  distress) are always included; PRIVATE fields (stocks, cash, prices, employees, hires,
+ *  distress, and shelf prices when information.public_prices) are always included; PRIVATE fields (stocks, cash, prices, employees, hires,
  *  valuation) only for the viewer's own firm or when `reveal` (market research purchased) is
  *  true — so rivals' private state never leaks to a student who hasn't paid for it. Solo passes
  *  reveal=true (single human; the UI blurs cosmetically); multiplayer gates on the purchase. */
 export function projectFirms(world: WorldState, c: Config, viewerId: FirmId, lastFirmResults: FirmRoundResult[], reveal: boolean, nameOf: (id: FirmId) => string): FirmSnapshotView[] {
   const lastByFirm = new Map(lastFirmResults.map((f) => [f.firm_id, f]));
+  const rep = researchReports(c);
+  const soldOf = (fr: FirmRoundResult | undefined) => (fr ? Object.values(fr.segments).reduce((a, s) => a + s.q_sold, 0) : 0);
+  const totalSold = lastFirmResults.reduce((a, fr) => a + soldOf(fr), 0);
   return world.firms.map((f) => {
     const isYou = f.id === viewerId;
     const show = isYou || reveal;
     const fr = lastByFirm.get(f.id);
+    // 11-07: with the research reports, a rival's private figures are estimates (engine/research.ts) — the same
+    // draws the reports publish, so the dossier and the reports agree.
+    const est = !!rep && !isYou && show;
+    const E = (key: ResearchKey, v: number, sub = 0) => (est ? researchEstimate(world, rep!, f.id, key, v, sub).est : v);
     const priceBySeg: Record<SegmentId, number> = {};
     const shareBySeg: Record<SegmentId, number> = {};
     const focus: SegmentId[] = [];
-    if (fr) for (const [seg, r] of Object.entries(fr.segments)) { if (r.share > 0.01) focus.push(seg as SegmentId); if (show) { priceBySeg[seg as SegmentId] = r.price; shareBySeg[seg as SegmentId] = r.share; } }
+    // 11-07: with information.public_prices, a rival's shelf price is public in every category it sells in
+    // (research or not); its category shares stay behind research (scanner data is a paid product).
+    const pricesPublic = !!c.information?.public_prices;
+    if (fr) for (const [seg, r] of Object.entries(fr.segments)) {
+      if (r.share > 0.01) focus.push(seg as SegmentId);
+      if (show) { priceBySeg[seg as SegmentId] = r.price; shareBySeg[seg as SegmentId] = r.share; }
+      else if (pricesPublic && (r.q_sold > 0 || r.share > 0)) priceBySeg[seg as SegmentId] = r.price;
+    }
     return {
       firm_id: f.id, name: nameOf(f.id), status: f.status, isYou,
       score: fr?.scorecard_cumulative ?? 0,
       share: fr ? Object.values(fr.segments).reduce((a, s) => a + s.share, 0) : 0,
-      Q: show ? f.Q : 0, B: show ? f.B : 0, cap: show ? f.cap : 0, unitCost: show ? f.unit_cost : 0,
-      T_emp: show ? f.T_emp : 0, T_inv: show ? f.T_inv : 0, T_gov: show ? f.T_gov : 0,
+      soldShare: totalSold > 0 ? soldOf(fr) / totalSold : 0,
+      Q: show ? E("quality", f.Q) : 0, B: show ? E("brand", f.B) : 0, cap: show ? E("capacity", f.cap) : 0, unitCost: show ? E("unitCost", f.unit_cost) : 0,
+      T_emp: show ? E("T_emp", f.T_emp) : 0, T_inv: show ? E("T_inv", f.T_inv) : 0, T_gov: show ? E("T_gov", f.T_gov) : 0,
       // clamped at 10× like the engine's own figure (finance.ts) — equity ≤ 0 read ~10¹²× (DW-082)
-      leverage: show ? Math.min(10, f.debt / Math.max(f.paid_in_capital + f.retained_earnings, 1e-6)) : 0,
-      netIncome: show ? (fr?.pnl.net_income ?? 0) : 0,
+      leverage: show ? E("leverage", Math.min(10, f.debt / Math.max(f.paid_in_capital + f.retained_earnings, 1e-6))) : 0,
+      netIncome: show && !est ? (fr?.pnl.net_income ?? 0) : 0,
       priceBySeg, shareBySeg, focus,
-      cash: show ? f.cash : 0, debt: show ? f.debt : 0,
-      valuation: show ? firmValuation(f, c) : 0,
+      cash: show && !est ? f.cash : 0, debt: show && !est ? f.debt : 0,
+      valuation: show ? E("valuation", firmValuation(f, c)) : 0,
       distressRounds: f.rounds_below_health ?? 0,
       keyHires: show ? (f.key_hires ?? []).map((h) => h.role) : [],
       verticalAssets: show ? (f.vertical_assets ?? []).map((a) => a.id) : [],
       // DW-075: loyalty/tenure are the firm's private read on its own people — research reveals a
       // rival's roster, pay and morale (scouting), not how hard the person would be to pry loose.
-      employees: show ? (f.employees ?? []).map((e) => ({ id: e.id, name: e.name, role: e.role, skill: e.skill, satisfaction: e.satisfaction, salary: e.salary, ...(isYou ? { tenure_rounds: e.tenure_rounds, loyalty: e.loyalty ?? 0 } : {}) })) : [],
+      // 11-07: with the reports, a rival's pay and morale are the analyst's reads (salary to the nearest $100, morale to 5%).
+      employees: show ? (f.employees ?? []).map((e, i) => ({ id: e.id, name: e.name, role: e.role, skill: e.skill,
+        satisfaction: est ? Math.max(0, Math.min(1, Math.round((e.satisfaction + researchSd(rep!, "morale") * researchDraw(world.seed, world.round, f.id, "morale", i)) * 20) / 20)) : e.satisfaction,
+        salary: est ? Math.round(E("salary", e.salary, i) / 100) * 100 : e.salary,
+        ...(isYou ? { tenure_rounds: e.tenure_rounds, loyalty: e.loyalty ?? 0 } : {}) })) : [],
       facilities: (f.facilities ?? []).map((x) => ({ type: x.type, location_id: x.location_id, market_id: x.market_id, active: x.active })),
+      ...(est ? { estimated: true, health: healthBand(f, fr, c) } : {}),
     };
   });
 }

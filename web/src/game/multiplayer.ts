@@ -71,6 +71,7 @@ export interface RawView {
   styles?: Record<string, { color: string | null; emblem: string | null }>; // DW-051 house colour/mark per firm
   markets?: GameView["markets"]; // MOD-B01 per-team city view (projected server-side)
   sizing?: GameView["sizing"]; // DW-084 TAM / SAM / SOM (projected server-side)
+  research?: GameView["research"]; // 11-07: the three research reports (server-gated on the team's purchase)
   seats?: GameView["seats"]; // team firms: this firm's C-suite seats + submit status
   teamPlan?: TeamPlan; // team firms: each seat's slice + the composed decision (same-firm only)
   firms?: GameView["firms"]; // public per-firm snapshots (rivals redacted unless research bought)
@@ -308,6 +309,8 @@ export class StudentClient {
       history: v.history ?? [],
       firms: v.firms ?? [],
       infoActive: v.infoActive ?? !!this.lastDecision?.buy_info,
+      publicPrices: !!this.config?.information?.public_prices,
+      researchReports: !!this.config?.information?.reports,
       names: v.names ?? {},
       styles: v.styles ?? {},
       inventoryEnabled: this.config ? inventoryEnabled(this.config) : false,
@@ -320,6 +323,7 @@ export class StudentClient {
       fx: v.fx ?? {},
       markets: v.markets ?? [], // MOD-B01 per-team city view (projected server-side)
       sizing: v.sizing ?? null, // DW-084: absent on an older server ⇒ the card stays hidden
+      research: v.research ?? null,
       seats: v.seats ?? [], // team firms: C-suite seats + submit status
       teamPlan: v.teamPlan ?? null, // team firms: the live plan review surface
       agreements: v.agreements ?? [],

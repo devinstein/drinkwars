@@ -73,17 +73,18 @@ test("11-06 · the COO cockpit warns before a tank binge, and stops asking for t
   const ahead = quiet.find((x) => x.label === "Tanks ahead of demand");
   assert.ok(ahead, quiet.map((x) => x.label).join(", "));
   assert.equal(ahead!.value, "40%");
-  assert.match(ahead!.read, /trim the tank order before adding more/);
+  assert.match(ahead!.read, /a smaller tank order saves money unless demand grows/); // 11-09 copy pass
   // Sold out last quarter, but the 75,000 units landing now cover all of it: no call for more tanks.
   const covered = withSizing(sold + 0.5 * sold, 0.5 * sold);
   assert.ok(capThis >= 1.5 * sold, `the landing order covers the sell-out: ${capThis} vs ${1.5 * sold}`);
   const card = covered.find((x) => x.label === "Turned away")!;
-  assert.match(card.read, /covered without more tanks/);
+  assert.match(card.read, /so that demand is covered/);
   assert.doesNotMatch(card.read, /or more tanks/);
   // …and the utilization card doesn't ask for a build on last quarter's ceiling either.
   v.ownResult = { ...v.ownResult!, effective_cap: sold };
   const util = cockpitSignals("operations", v).find((x) => x.label === "Capacity utilization")!;
-  assert.match(util.read, /cover that demand — no new build is needed/);
+  assert.match(util.read, /arrive this quarter and cover that demand/); // 11-09 copy pass
+  assert.doesNotMatch(util.read, /New tanks take a round/);
 });
 
 test("11-06 · results-page news: the firm's own notices are split from the market's, in the second person", () => {
@@ -95,8 +96,8 @@ test("11-06 · results-page news: the firm's own notices are split from the mark
     "SHOCK fired: water (cost_spike, mag 0.35, unannounced) in Heartland",
   ], you);
   assert.deepEqual(firm.map((e) => e.title), ["Orders cut", "Loan cut"]);
-  assert.match(String(firm[0].body), /^You couldn't pay for the whole plan: \$650,000 of spending against \$570,196/);
-  assert.match(String(firm[1].body), /^The bank lent you only \$427,493 of the \$1,000,000 asked for: debt may not exceed 3× annual operating cash flow/);
+  assert.match(String(firm[0].body), /^You couldn't pay for the whole plan\. It called for \$650,000 of spending, but cash and financing came to \$570,196/);
+  assert.match(String(firm[1].body), /^The bank lent you only \$427,493 of the \$1,000,000 asked for\. The bank's reason: debt may not exceed 3× annual operating cash flow/);
   assert.equal(market.length, 1, `market news: ${market.map((e) => e.title).join(", ")}`);
   assert.ok(!market.some((e) => e.title === "Orders cut"), "a rival's cut is neither market news nor yours");
 });
@@ -123,7 +124,7 @@ test("11-06 · the submit check's tank cut is the engine's, to the dollar, and s
   assert.ok(out.tank!.kept > 100_000 && out.tank!.kept < 400_000, `kept ${out.tank!.kept}`);
   const line = out.lines.find((l) => l.startsWith("Tank order:"))!;
   assert.match(line, /^Tank order: \$1,200,000 → \$[\d,]+\. That adds [\d,]+ units of capacity next quarter, not 300,000\.$/, line);
-  assert.ok(out.lines[0].startsWith("This plan spends $1,250,000, but cash and the financing you'll get cover"), out.lines[0]);
+  assert.ok(out.lines[0].startsWith("This plan spends $1,250,000. Your cash and the financing you'll get cover"), out.lines[0]); // 11-09 copy pass
   await g.play(plan);
   const v1 = await g.view();
   const cut = v1.events.map((e) => e.match(/Cut: tank order \$1,200,000 → \$([\d,]+)/)).find(Boolean);
@@ -149,7 +150,7 @@ test("11-06 · the submit check's loan cap is the bank's answer, to the dollar (
   const out = moneyOutcome(v2, plan, g.infoCost())!;
   assert.ok(out.loan && out.loan.lent < 5_000_000, "the bank caps a $5M ask");
   const line = out.lines.find((l) => l.startsWith("Loan:"))!;
-  assert.match(line, /^Loan: the bank lends \$[\d,]+ of the \$5,000,000 asked \(debt may not exceed 3× annual operating cash flow \(EBITDA\)\)\.$/, line);
+  assert.match(line, /^Loan: the bank lends \$[\d,]+ of the \$5,000,000 you asked for \(debt may not exceed 3× annual operating cash flow \(EBITDA\)\)\.$/, line); // 11-09 copy pass
   await g.play(plan);
   const v3 = await g.view();
   const lent = v3.events.map((e) => e.match(/^CREDIT: the bank lends .+? only (\$[\d,]+) of the \$5,000,000/)).find(Boolean);
@@ -162,7 +163,7 @@ test("11-06 · after the round, a cut tank order says what it bought in units", 
   const { firm } = roundNews([
     `BLOCKED: ${you} cannot pay for its whole plan — $1,200,000 of spending against $398,539 of cash and financing after $61,461 set aside for running costs. Cut: tank order $1,200,000 → $398,539`,
   ], you, { tankUnits: (x) => x * 0.25 });
-  assert.match(String(firm[0].body), /Cut: tank order \$1,200,000 → \$398,539 \(99,635 units of new capacity instead of 300,000\)\.$/, String(firm[0].body));
+  assert.match(String(firm[0].body), /Cut to fit: tank order \$1,200,000 → \$398,539 \(99,635 units of new capacity instead of 300,000\)\.$/, String(firm[0].body));
 });
 
 test("11-06 · every panel's running costs are the guard's reserve, even after a big loan reprices the debt", async () => {

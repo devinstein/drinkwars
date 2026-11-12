@@ -37,12 +37,12 @@ export const TUNING_GROUPS: Group[] = [
   {
     id: "demand", label: "Demand", kicker: "What buyers respond to", blurb: "How sensitive consumers are to price, quality and brand — and how easily they walk away.",
     knobs: [
-      { key: "beta_p", label: "Price sensitivity", min: 0.2, max: 3, typ: 1, fmt: (v) => v.toFixed(2) + "×", feel: (v) => v < 0.7 ? calm("Buyers barely notice price", "you can charge a premium and keep volume — the “$100 monopoly” regime.") : v > 1.7 ? hot("Buyers chase the cheapest pint", "a few cents swings big share — price wars dominate.") : mid("Balanced price response", "price matters but quality and brand still pull weight.") },
+      { key: "beta_p", label: "Price sensitivity", min: 0.2, max: 3, typ: 1, fmt: (v) => v.toFixed(2) + "×", feel: (v) => v < 0.7 ? calm("Buyers barely notice price", "you can charge a premium and keep volume — monopoly-style pricing.") : v > 1.7 ? hot("Buyers chase the cheapest pint", "a few cents swings big share — price wars dominate.") : mid("Balanced price response", "price matters but quality and brand still pull weight.") },
       { key: "beta_q", label: "Quality pull", min: 0, max: 2.5, typ: 1, fmt: (v) => v.toFixed(2) + "×", feel: (v) => v > 1.6 ? calm("Quality wins markets", "investing in recipe quality pays off strongly.") : v < 0.5 ? hot("Quality barely registers", "R&D spend is hard to justify.") : mid("Quality matters moderately", "a real but not dominant differentiator.") },
       { key: "beta_b", label: "Brand pull", min: 0, max: 2.5, typ: 1, fmt: (v) => v.toFixed(2) + "×", feel: (v) => v > 1.5 ? calm("Brand is king", "marketing and PR splashes drive outsized share.") : v < 0.4 ? hot("Brand barely moves buyers", "marketing spend mostly wasted.") : mid("Brand has real weight", "marketing compounds but isn't everything.") },
       // DW-084 (v3): where quality and brand stop counting in full. The far end of the slider turns it off
       // (linear, as Sprint 1–2 played) — stored as null, which survives JSON where "absent" would fall back to 20.
-      { key: "stock_knee", label: "Diminishing returns", min: 10, max: 60, typ: 20, step: 5, fmt: (v) => (v >= 60 ? "off" : `above ${v.toFixed(0)}`), feel: (v) => v >= 60 ? hot("No diminishing returns", "a funded quality/brand lead keeps compounding into share — Sprint 2's winner-take-all.") : v <= 15 ? calm("Leads fade fast", "past a modest stock, more quality or brand buys little; the field stays close.") : mid("Diminishing returns past a lead", "quality and brand count in full to here, then each point buys less.") },
+      { key: "stock_knee", label: "Diminishing returns", min: 10, max: 60, typ: 20, step: 5, fmt: (v) => (v >= 60 ? "off" : `above ${v.toFixed(0)}`), feel: (v) => v >= 60 ? hot("No diminishing returns", "a funded quality/brand lead keeps compounding into share — winner-take-all.") : v <= 15 ? calm("Leads fade fast", "past a modest stock, more quality or brand buys little; the field stays close.") : mid("Diminishing returns past a lead", "quality and brand count in full to here, then each point buys less.") },
       { key: "U0", label: "Outside option", min: 0.3, max: 2.5, typ: 1, fmt: (v) => v.toFixed(2) + "×", feel: (v) => v > 1.6 ? hot("Buyers walk away easily", "weak total demand — firms fight over a small pie.") : v < 0.6 ? calm("Captive market", "almost everyone buys something.") : mid("Normal walk-away rate", "a healthy share of buyers can abstain.") },
     ],
   },
@@ -350,7 +350,7 @@ export function TuningBoard({ value, onChange }: { value: TuningVals; onChange: 
             </div>
           ))}
         </div>
-        <div className="mt-2.5 rounded-[10px] border border-dashed border-line2 bg-panel2/60 p-2.5 text-[0.65rem] leading-snug text-inksoft">Applies as a <b className="text-ink">ConfigOverride</b> on the game — no engine change. Save it as a preset to run a section as a treatment condition.</div>
+        <div className="mt-2.5 rounded-[10px] border border-dashed border-line2 bg-panel2/60 p-2.5 text-[0.65rem] leading-snug text-inksoft">Applies to <b className="text-ink">this game only</b>. Save it as a preset to reuse it — for example, to run one section as a treatment condition.</div>
       </aside>
     </div>
   );

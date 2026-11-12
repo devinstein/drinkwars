@@ -63,7 +63,7 @@ const LOCATE = `(() => {
   const near = (el, sel, up = 4) => { let p = el; for (let i = 0; i <= up && p; i++) { const c = p.querySelector(sel); if (c) return c; p = p.parentElement; } return null; };
   const first = (re, sel, tags, up) => { for (const l of labels(re, tags)) { const c = near(l, sel, up); if (c) return c; } return null; };
   return {
-    invest_cap: () => first(/^Invest in tank capacity/, "input[type=number]", "label", 2),
+    invest_cap: () => first(/^(Tank order|Invest in tank capacity)/, "input[type=number]", "label", 2),
     invest_Q: () => first(/^Recipe quality$/, "input[type=range]", "label", 2),
     debt_draw: () => first(/^Draw debt \\(cash in\\)$/, "input[type=number]", "label", 1),
     equity_raise: () => first(/^Raise equity \\(cash in\\)$/, "input[type=number]", "label", 1),
@@ -129,7 +129,7 @@ const apiSubmit = async (s, patch = {}) => {
 const composed = async (s) => (await view(s.token)).teamPlan?.composed ?? {};
 const toDecide = async (page, wireRound) => {
   await front(page);
-  await page.waitForFunction((n) => new RegExp(`Round\\s*${n}\\s*/`).test(document.body.innerText), { timeout: 30000 }, wireRound + 1);
+  await page.waitForFunction((n) => new RegExp(`Round\\s*${n}\\s*(/|of)`).test(document.body.innerText), { timeout: 30000 }, wireRound + 1);
   const d = await page.$("xpath/.//button[contains(normalize-space(.), 'Decide')]"); if (d) await d.click();
   await waitText(page, /What locks at round end|Commit the round/, 20000); await sleep(700);
 };
@@ -404,7 +404,7 @@ const rows = dash.panel.filter((p) => p.round <= 3);
 ok(rows.length === 28 && rows.every((p) => Number.isFinite(p.cash) && Number.isFinite(p.scoreCumulative)), "4 rounds × 7 firms resolved with finite cash and scores", `${rows.length} rows · bankrupt: ${rows.filter((p) => p.round === 3 && p.status !== "active").map((p) => p.firmId).join(", ") || "none"}`);
 const gaps = rows.filter((p) => p.opexLines && Math.abs(sum(p.opexLines) - p.opex) > 1);
 ok(gaps.length === 0, "every firm-round's opex lines sum to its opex total", gaps.map((p) => `${p.firmId} r${p.round}`).join(", "));
-for (const [tag, p] of Object.entries(P)) { await front(p); const at5 = await p.waitForFunction(() => /Round\s*5\s*\//.test(document.body.innerText), { timeout: 30000 }).then(() => true, () => false); if (!at5) ok(false, `${tag}: page followed the game to round 5`); }
+for (const [tag, p] of Object.entries(P)) { await front(p); const at5 = await p.waitForFunction(() => /Round\s*5\s*(\/|of)/.test(document.body.innerText), { timeout: 30000 }).then(() => true, () => false); if (!at5) ok(false, `${tag}: page followed the game to round 5`); }
 ok(true, "every browser chair followed the game to round 5");
 await api(`/instructor/games/${gameId}/end`, {}).catch(() => {});
 } catch (e) { results.push("ABORT " + e.message); console.log("ABORT " + e.message.split("\n")[0]); if (gameId) await api(`/instructor/games/${gameId}/end`, {}).catch(() => {}); }

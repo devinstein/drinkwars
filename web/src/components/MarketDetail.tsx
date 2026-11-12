@@ -2,6 +2,27 @@ import { useEffect } from "react";
 import type { MarketConfig } from "drinkwars-engine";
 import { fmt, marketName } from "../labels.js";
 import { Row, Tag } from "./ui.js";
+import { firmColor } from "../lib/teamColors.js";
+import type { GameView } from "../game/controller.js";
+
+/** 11-09: who competes in a market, from public facts — rivals' sites (by district) and whose beer was on
+ *  its shelves last round. Every brewery selling in a city competes for its shoppers, near or far. */
+export interface MarketRival { firmId: string; name: string; sites: number; districts: string[] }
+export function marketRivals(view: Pick<GameView, "markets" | "names" | "modules">, marketId: string): MarketRival[] {
+  const m = view.markets.find((x) => x.id === marketId);
+  if (!m) return [];
+  const label = (id?: string) => view.modules?.facilities?.districts?.find((d) => d.id === id)?.label ?? id ?? "";
+  const by = new Map<string, MarketRival>();
+  for (const r of m.rivalSites) {
+    const e = by.get(r.firmId) ?? { firmId: r.firmId, name: view.names[r.firmId] ?? r.name, sites: 0, districts: [] };
+    e.sites++;
+    const d = label(r.location_id);
+    if (d && !e.districts.includes(d)) e.districts.push(d);
+    by.set(r.firmId, e);
+  }
+  for (const id of m.sellers ?? []) if (!by.has(id)) by.set(id, { firmId: id, name: view.names[id] ?? id, sites: 0, districts: [] });
+  return [...by.values()].sort((a, b) => b.sites - a.sites || a.name.localeCompare(b.name));
+}
 
 /** Map a coefficient multiplier (1 = same as home) to a plain-language read for
  *  an advanced-undergrad audience — no betas, just what it means for play. */
@@ -23,6 +44,7 @@ export function MarketDetail({
   weight,
   entered,
   perf,
+  rivals,
   onClose,
 }: {
   market: MarketConfig;
@@ -30,6 +52,7 @@ export function MarketDetail({
   weight: number; // current capacity-allocation weight (0–1)
   entered: boolean;
   perf?: { revenue: number; q_sold: number } | null;
+  rivals?: MarketRival[]; // 11-09: the competition here, before entry too
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -81,6 +104,23 @@ export function MarketDetail({
             {market.kind === "export" && <Row label="Tariff" value={`${Math.round(market.tariff_rate * 100)}% on export revenue`} />}
             {market.kind === "export" && fx != null && <Row label="Exchange rate" value={<span className="tnum">{fx.toFixed(2)} {market.fx_volatility > 0 ? `(swings ±${Math.round(market.fx_volatility * 100)}%)` : ""}</span>} />}
           </div>
+
+          {rivals && (
+            <>
+              <div className="mt-4 mb-1 text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-inksoft">Rivals here</div>
+              {rivals.length ? (
+                <div className="grid gap-1">
+                  {rivals.map((r) => (
+                    <div key={r.firmId} className="flex items-center gap-2 text-sm">
+                      <span className="h-2 w-2 flex-none rounded-full" style={{ background: firmColor(r.firmId) }} />
+                      <span className="flex-1 truncate text-ink">{r.name}</span>
+                      <span className="font-mono text-[0.62rem] text-inksoft">{r.sites ? `${r.sites} site${r.sites === 1 ? "" : "s"} · ${r.districts.join(", ")}` : "ships in"}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : <div className="text-sm text-inksoft">No rival sells here yet.</div>}
+            </>
+          )}
 
           <div className="mt-4 mb-1 text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-inksoft">Your position</div>
           <div className="grid gap-1">

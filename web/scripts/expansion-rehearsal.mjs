@@ -111,7 +111,7 @@ const goTab = async (page, label) => {
 };
 const toDecide = async (page, wireRound) => {
   await front(page);
-  await page.waitForFunction((n) => new RegExp(`Round\\s*${n}\\s*/`).test(document.body.innerText), { timeout: 30000 }, wireRound + 1);
+  await page.waitForFunction((n) => new RegExp(`Round\\s*${n}\\s*(/|of)`).test(document.body.innerText), { timeout: 30000 }, wireRound + 1);
   await goTab(page, "Decide"); await sleep(700);
 };
 const reload = async (page) => { await front(page); await page.reload({ waitUntil: "networkidle0" }); await waitText(page, /What locks at round end|Commit the round/, 25000); await sleep(4500); };
@@ -442,7 +442,7 @@ const empAfter = (vA2.own.employees ?? []).find((e) => e.id === emp.id);
 // read the raise off; the raise itself is already proven in the LOCKED plan by the check above.
 const left = e2.find((e) => e.startsWith(`POACHED: a rival hires ${emp.name} `) || e.startsWith(`DEPARTURE: ${emp.name} `));
 ok(left ? true : !!empAfter && Math.abs(empAfter.salary - RAISE) < 1, left ? `(f) resolved r2: ${emp.name} left this round ("${left.slice(0, 48)}…") — the raise stands in the locked plan` : "(f) resolved r2: the raise took — the employee's salary is the new number", `${emp.name} ${usd(emp.salary)} → ${usd(empAfter?.salary)}`);
-for (const [tag, p] of Object.entries(P)) { await front(p); const at3 = await p.waitForFunction(() => /Round\s*3\s*\//.test(document.body.innerText), { timeout: 30000 }).then(() => true, () => false); if (!at3) ok(false, `${tag}: page followed the game to round 3`); }
+for (const [tag, p] of Object.entries(P)) { await front(p); const at3 = await p.waitForFunction(() => /Round\s*3\s*(\/|of)/.test(document.body.innerText), { timeout: 30000 }).then(() => true, () => false); if (!at3) ok(false, `${tag}: page followed the game to round 3`); }
 ok(true, "every browser chair followed the game to round 3");
 // (o) playtest 10-29: ALPHA's COO chair is SEATED and updates without touching builds; the CHRO sites one. The merge
 // lets the CEO's word stand over a peer's once that chair stays silent, but the CEO's row read "the COO decides" with

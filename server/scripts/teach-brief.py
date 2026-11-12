@@ -94,7 +94,7 @@ def cards(rich):
     return c
 
 
-show_name = lambda t: t["name"] if t.get("joined", True) else re.sub(r"^Open slot", "NPC", t["name"], flags=re.I)  # = dashboard shortName
+show_name = lambda t: t["name"] if t.get("joined", True) else re.sub(r"^Open slot", "Bot", t["name"], flags=re.I)  # = dashboard shortName
 FIRM_COLORS = ["#c0703a", "#1f8c93", "#d99b2b", "#7c4f86", "#5a8a2a", "#b0533f", "#4f5a9a", "#5a6b72"]  # = web/src/lib/teamColors.ts FIRM_COLORS
 EMBLEMS = ["e-hops", "e-mtn", "e-anchor", "e-wheat", "e-star", "e-flame", "e-crown", "e-bolt"]  # = FacilityGlyph.tsx EMBLEM_IDS
 
@@ -638,11 +638,11 @@ def render_handouts(b):
     return _page(TEAMS, dict(label=b["label"], rich=b["rich"], teams=b["focus"]))
 
 
-FONTS = '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">'
+FONTS = ''  # 11-09: Helvetica only, like the app (Control Room Glass) — no web fonts to fetch on a classroom projector
 TOKENS = """
-:root{--paper:#ece0c4;--panel:#fcf5e7;--panel2:#e9d7b4;--ink:#2c1d11;--inksoft:#6b513a;--faint:#9a7a52;--copper:#c0703a;--copperdeep:#9a5024;--gold:#b98217;--hop:#456a22;--aero:#1f8c93;--plum:#7c4f86;--brick:#a83f2c;--line:#d8c39c;--line2:#c2a877;
-  --serif:"EB Garamond",Georgia,"Times New Roman",serif;--sans:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,sans-serif}
-:root[data-theme=dark]{--paper:#1c130a;--panel:#2f2114;--panel2:#160f08;--ink:#f4e6c8;--inksoft:#bda079;--faint:#a98a5f;--copper:#e0903f;--copperdeep:#f0b94e;--gold:#f0b94e;--hop:#8fc24f;--aero:#34c2c9;--plum:#a888b0;--brick:#d86a52;--line:#3a2a18;--line2:#503b22}
+:root{--paper:#eef1f4;--panel:#ffffff;--panel2:#e9edf1;--ink:#121821;--inksoft:#50565e;--faint:#5b6169;--copper:#a65a08;--copperdeep:#8f4c06;--gold:#8a6400;--hop:#1b7340;--aero:#137480;--plum:#6a3fc8;--brick:#b3321b;--line:#d9dee4;--line2:#c3cad2;
+  --serif:"Helvetica Neue",Helvetica,Arial,sans-serif;--sans:"Helvetica Neue",Helvetica,Arial,sans-serif}
+:root[data-theme=dark]{--paper:#0a0d12;--panel:#12161c;--panel2:#0d1116;--ink:#f1f4f7;--inksoft:#b5b9bf;--faint:#91959b;--copper:#ffaa3d;--copperdeep:#ffc477;--gold:#ffc56a;--hop:#74dd96;--aero:#4cc0cb;--plum:#b994ff;--brick:#ff6a4d;--line:#232a33;--line2:#333c47}
 *{box-sizing:border-box}
 .num{font-variant-numeric:lining-nums tabular-nums}
 .eyebrow{font:600 20px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--inksoft)}
@@ -652,11 +652,11 @@ DECK = """<!doctype html><html lang="en" data-theme="dark"><head><meta charset="
 <title>Board meeting debrief</title>""" + FONTS + """<style>
 /* Projector-first: dark by default (D toggles light). Every text/ground pair ≥ 7:1 in dark, ≥ 4.5:1 in light;
    meaning never rides on colour alone (signs, labels, emblems carry it too). */
-:root,:root[data-theme=dark]{--paper:#0b0805;--panel:#15100a;--panel2:#261c12;--ink:#fbf2de;--inksoft:#e0cba8;--faint:#bda37c;--line:#3a2c1e;--line2:#5e4833;
-  --copper:#f59d55;--gold:#f7c948;--aero:#56d8e0;--hop:#a8dd6c;--brick:#ff8f75;--plum:#d6aee6;--ring:#fbf2de}
-:root[data-theme=light]{--paper:#e6d8b8;--panel:#fcf6ea;--panel2:#efe2c6;--ink:#1f140a;--inksoft:#55402c;--faint:#6f5638;--line:#d8c39c;--line2:#b39668;
-  --copper:#a4531f;--gold:#8a5f00;--aero:#0d6c73;--hop:#3b5d19;--brick:#a1321f;--plum:#6a3f75;--ring:#1f140a}
-:root{--serif:"EB Garamond",Georgia,"Times New Roman",serif;--sans:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,sans-serif}
+:root,:root[data-theme=dark]{--paper:#06080b;--panel:#0f1319;--panel2:#1a2029;--ink:#f1f4f7;--inksoft:#c9ced4;--faint:#a3a9b0;--line:#232a33;--line2:#3a4350;
+  --copper:#ffaa3d;--gold:#ffc56a;--aero:#4cc0cb;--hop:#74dd96;--brick:#ff7a5c;--plum:#b994ff;--ring:#f1f4f7}
+:root[data-theme=light]{--paper:#e6eaee;--panel:#f7f9fb;--panel2:#eef1f4;--ink:#121821;--inksoft:#3f454d;--faint:#5b6169;--line:#d5dbe2;--line2:#b6bec8;
+  --copper:#8f4c06;--gold:#7a5600;--aero:#0f6670;--hop:#1b6b3c;--brick:#a52d18;--plum:#5a35a8;--ring:#121821}
+:root{--serif:"Helvetica Neue",Helvetica,Arial,sans-serif;--sans:"Helvetica Neue",Helvetica,Arial,sans-serif}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
 #stage{position:absolute;left:50%;top:50%;width:1440px;height:810px;background:var(--panel);transform-origin:center center}
@@ -851,7 +851,7 @@ if (D.trouble.length || D.exits.length) {
   const shown = D.trouble.slice(0, D.exits.length ? 3 : 4);  // longest clock first, teams before NPCs; the talk sheet has every firm
   add('05 · Trouble', `<h2>Under the safety line: cash under ${F.threshold}, or coverage under 1×</h2>
     <div class="soft" style="margin-top:-8px;font-size:28px">Lenders stop new loans. From quarter ${D.acquirable} a rival can buy you; at quarter ${D.runway}, forced exit.</div>
-    <div>${shown.map((t) => `<div class="tr"><div>${firm(t.name)}${t.npc ? ' <span class="faint" style="font-size:20px">NPC</span>' : ''}</div>
+    <div>${shown.map((t) => `<div class="tr"><div>${firm(t.name)}${t.npc ? ' <span class="faint" style="font-size:20px">bot</span>' : ''}</div>
       <div><div>${esc(t.short)}</div>${t.loss ? `<div class="loss">${esc(t.loss)}</div>` : ''}</div><div>${t.n ? pips(t.n) : '<span class="soft">credit-rationed only</span>'}</div></div>`).join('')}</div>
     ${D.exits.length ? `<div><b>Out this round:</b> ${D.exits.map((x) => `${firm(x.name)} ${esc(x.word)}`).join('; ')}.</div>` : ''}`);
 }

@@ -63,8 +63,8 @@ test("an industry-wide shock is unchanged, and the dismissal key separates regio
 
 test("the projected debrief deck shows events as feed prose, never the engine log line", async () => {
   const { deckEvent } = await import("../src/components/Debrief.js");
-  assert.equal(deckEvent("SHOCK fired: water (cost_spike, mag 0.35, unannounced) in Heartland"), "Water shortage in Cedar Falls: input costs spike sharply this round for producers there.");
+  assert.equal(deckEvent("SHOCK fired: water (cost_spike, mag 0.35, unannounced) in Heartland"), "Water shortage in Cedar Falls: brewing costs rose sharply this round for producers there.");
   assert.equal(deckEvent("EXPANSION: Rival 2 enters Coastal cities  ×2"), "Rival 2 expanded into Harbor City.  ×2");
-  assert.match(deckEvent("FACILITY BUILT: Rival 3 breaks ground on a taproom (online in 1 round)"), /^Rival 3 broke ground on a taproom/);
+  assert.match(deckEvent("FACILITY BUILT: Rival 3 breaks ground on a taproom (online in 1 round)"), /^Rival 3 started building a taproom/);
   assert.doesNotMatch(deckEvent("SHOCK fired: harvest (cost_spike, mag 0.55, unannounced)"), /cost_spike|mag 0\.55/);
 });

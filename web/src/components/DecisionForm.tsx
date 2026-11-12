@@ -1,10 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Config, Facility, FirmDecision, PrPlayType, SegmentId } from "drinkwars-engine";
 import { DESK_LEVERS, ROLE_DESK, applyAffordabilityGuard, creditReason, equityCapacity, equityIssueCost, financingGrant, overdraftLimit, runningCostEstimate } from "drinkwars-engine";
 import type { GameView } from "../game/controller.js";
 import { keepUntouchedMarkets, mergeDecision, type CityActions } from "../game/cityActions.js";
 import { SEG_LABEL, SEG_TAG, STOCK_LABEL, fmt, toDisplayMoney, toEngineMoney, marketName } from "../labels.js";
-import { holdLever, leverText, planDiffs, researchBuyer, teamOutcome, unholdLever, type PlanDiff } from "../lib/reconcile.js";
+import { holdLever, leverDesk, leverText, planDiffs, researchBuyer, teamOutcome, unholdLever, type PlanDiff } from "../lib/reconcile.js";
 import { listOf, readSellOuts, tankFit } from "../lib/sizing.js";
 import { holdOrder, tankOutlook } from "../lib/tanks.js";
 import { guardConfig, runningCostsAsGuard } from "../lib/moneyCheck.js";
@@ -14,7 +14,7 @@ import { CategoryCoin } from "./CategoryIcons.js";
 import { EventModal, type GameEvent } from "./EventModal.js";
 import { InfoDot } from "./InfoDot.js";
 import { WorldMap } from "./WorldMap.js";
-import { MarketDetail } from "./MarketDetail.js";
+import { MarketDetail, marketRivals } from "./MarketDetail.js";
 import { Alliances } from "./Alliances.js";
 import { Avatar, SkillStars } from "./People.js";
 import { firmColor } from "../lib/teamColors.js";
@@ -71,7 +71,18 @@ export function DecisionForm({
   standing,
   callsCount = 0,
   callsSlot,
+  cockpit,
+  aside,
+  baseline,
 }: {
+  /** Design pass 2b: the form as this round started — a lever moved off it glows amber (a teammate's number
+   *  that will lock glows red, yours green, as before). */
+  baseline?: FirmDecision | null;
+  /** Design pass 2 (Control Room Glass): the desk cockpit rides at the head of the lever column, and the
+   *  info stack (standings, round table, boardroom, events) takes the middle column on wide screens, so the
+   *  commit rail can own the right edge from the top of the page, pinned (Devin 11-07). */
+  cockpit?: ReactNode;
+  aside?: ReactNode;
   /** DW-077: the calls tickets (section D) mount inside the commit panel, above Submit; the
    *  count rides on the submit label ("… + 2 calls"). */
   callsCount?: number;
@@ -110,6 +121,27 @@ export function DecisionForm({
   desk?: DeskId;
 }) {
   const [localD, setLocalD] = useState<FirmDecision | null>(null);
+  // The pinned commit rail fits the viewport from wherever it sits: before it sticks (page top) its scroll box
+  // ends at the bottom of the screen, not 100vh below its top, so the pinned Submit is visible on arrival too.
+  // A callback ref: the rail mounts only once the decision has loaded, after this form's first render.
+  const [railEl, setRailEl] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = railEl; if (!el) return;
+    let raf = 0;
+    const fit = () => {
+      raf = 0;
+      if (!window.matchMedia("(min-width: 1024px)").matches) { el.style.maxHeight = ""; return; }
+      const top = Math.max(el.getBoundingClientRect().top, 68); // 68px = the lg:top-[4.25rem] pin
+      el.style.maxHeight = `${Math.max(360, window.innerHeight - top - 12)}px`;
+    };
+    const sched = () => { if (!raf) raf = requestAnimationFrame(fit); };
+    fit();
+    // Content above the rail (header, notices, the wire) can grow after mount and push it down: refit then too.
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(sched) : null;
+    ro?.observe(document.body);
+    window.addEventListener("scroll", sched, { passive: true }); window.addEventListener("resize", sched);
+    return () => { cancelAnimationFrame(raf); ro?.disconnect(); window.removeEventListener("scroll", sched); window.removeEventListener("resize", sched); };
+  }, [railEl]);
   const lifted = setDecision !== undefined;
   const d = lifted ? decision ?? null : localD;
   const writeD = setDecision ?? setLocalD;
@@ -119,6 +151,15 @@ export function DecisionForm({
   const [detailFac, setDetailFac] = useState<string | null>(null);
   const [siteDistrict, setSiteDistrict] = useState<string>("");
   const [sheetAll, setSheetAll] = useState(false); // DW-077 phone sheet: first 2 rows, then "+N more · see all"
+  // 11-07: the phone sheet opens into the whole commit panel (tap or swipe up); Escape folds it.
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const swipeY = useRef<number | null>(null);
+  useEffect(() => {
+    if (!sheetOpen) return;
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape") setSheetOpen(false); };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [sheetOpen]);
   const [, bump] = useState(0); // DW-077 "Keep mine" holds live in a module map (reconcile.holdLever) — re-render after one
   const activeSegs = view.segments.filter((s) => s.active).map((s) => s.id);
   // Pro-mode desk filter: hide a lever card when a specific desk is selected and it isn't this one.
@@ -167,7 +208,19 @@ export function DecisionForm({
   const diffOf = (f: keyof FirmDecision) => diffMap.get(String(f));
   const T = (f: keyof FirmDecision, v: unknown) => leverText(String(f), v, view);
   // The lever's control: a 2px border in red (a teammate's number locks) or green (yours is used).
-  const leverStyle = (f: keyof FirmDecision) => { const r = diffOf(f); if (!r) return undefined; const c = r.winner === "me" ? "var(--color-hop)" : "var(--color-brick)"; return { borderColor: c, boxShadow: `0 0 0 1px ${c}`, accentColor: c } as const; };
+  // Design pass 2b: changed values glow. A lever that differs from the team's plan glows green (yours locks) or red
+  // (a teammate's locks); one this seat moved off the round's starting form glows amber. On a specialist's form the
+  // other desks track the team's plan, so only its own desk can read as "you changed it".
+  const myDesk = ROLE_DESK[seatRole ?? ""] ?? "all";
+  const leverStyle = (f: keyof FirmDecision, sub?: string) => {
+    const r = diffOf(f);
+    if (r) { const c = r.winner === "me" ? "var(--color-hop)" : "var(--color-brick)"; return { borderColor: c, boxShadow: `0 0 0 1px ${c}, 0 0 14px color-mix(in srgb, ${c} 45%, transparent)`, accentColor: c } as const; }
+    const base = baseline ?? standing ?? null;
+    if (!base || (myDesk !== "all" && leverDesk(String(f)) !== myDesk)) return undefined;
+    const pick = (x: FirmDecision) => (sub ? (x[f] as unknown as Record<string, unknown> | undefined)?.[sub] : x[f]);
+    if (JSON.stringify(pick(d) ?? null) === JSON.stringify(pick(base) ?? null)) return undefined;
+    return { borderColor: "var(--color-copper)", boxShadow: "0 0 0 1px var(--color-copper), 0 0 12px var(--glow-a)", accentColor: "var(--color-copper)" } as const;
+  };
   const LeverNote = ({ f }: { f: keyof FirmDecision }) => { const r = diffOf(f); if (!r) return null; return (
     <div className={`mt-0.5 text-[0.7rem] leading-snug ${r.winner === "me" ? "text-hop" : "text-brick"}`}>
       {r.winner === "me" ? <><b>Yours is used{r.pending ? " once you submit" : ""}: {T(f, r.mine)}</b> · {r.whoShort}</> : <><b>Locks at {T(f, r.locks)}</b> · {r.whoShort}</>}
@@ -491,8 +544,125 @@ export function DecisionForm({
   // screen shows the whole round at once instead of a long scroll.
   const twoCol = geoOn || anyModuleControls || coopOn;
 
+  // 11-07: the commit panel's parts. The desktop rail and the phone sheet (opened) render the same pieces.
+  const railHead = (
+    <>
+          <div className="flex items-center justify-between px-4 py-2.5" style={{ borderBottom: "1px solid var(--color-line)", background: "linear-gradient(rgba(255,255,255,.06), rgba(255,255,255,0))" }}>
+            <span className="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--color-copperdeep)" }}>{team ? "What locks at round end" : "Commit the round"}</span>
+            <span className="font-mono text-[0.55rem] uppercase tracking-wide" style={{ color: "var(--color-inksoft)" }}>Round {roundNo}</span>
+          </div>
+    </>
+  );
+  const railBody = (
+    <>
+          <div className="px-4 pt-3 pb-3">
+            {/* DW-084: what the firm has to work with, before anything is planned — Sprint 2's teams never
+                saw the bank's limit, the investors' limit or the overdraft, and planned past all three. */}
+            <div data-testid="cash-and-credit" className="mb-3 grid gap-1 pb-2.5" style={{ borderBottom: "1px solid var(--color-line)" }}>
+              <div className="font-mono text-[0.58rem] uppercase tracking-[0.1em]" style={{ color: "var(--color-inksoft)" }}>Cash &amp; credit this quarter</div>
+              <CommitRow label="Cash on hand" value={fmt.money(cash)} />
+              {bankLine != null && <CommitRow label="The bank lends up to" value={fmt.money(bankLine)} tone={bankLine >= 0.5 ? undefined : "brick"} />}
+              {equityGated && <CommitRow label="Investors put in up to" value={fmt.money(equityCap)} tone={equityCap >= 0.5 ? undefined : "brick"} />}
+              {odCfg && <CommitRow label="Emergency overdraft" value={`up to ${fmt.money(odLimit)}`} />}
+              {view.finance && (
+                <ul className="mt-0.5 grid gap-px text-[0.68rem] leading-snug" style={{ color: "var(--color-faint)" }}>
+                  <li>· Bank debt ≤ {view.finance.max_leverage}× equity{cfl ? (cfStart != null && cfStart > roundNo ? ` · from round ${cfStart}, also ≤ ${cfl.ebitda_multiple}× a year of operating cash flow (EBITDA)` : ` and ≤ ${cfl.ebitda_multiple}× a year of operating cash flow (EBITDA)`) : ""}</li>
+                  {equityGated && <li>· Investors put in ≤ {(view.finance.equity_gate?.max_fraction_of_valuation ?? 0.5) === 0.5 ? "half" : fmt.pct(view.finance.equity_gate?.max_fraction_of_valuation ?? 0.5)} of what the firm is worth</li>}
+                  {odCfg && <li>· The overdraft is a last resort at a penalty rate. Past it, the firm closes.</li>}
+                </ul>
+              )}
+            </div>
+            <div className="font-mono text-[0.58rem] uppercase tracking-[0.1em]" style={{ color: "var(--color-inksoft)" }}>{team ? "On the team's plan · projected cash · pre-sales" : "Projected cash · pre-sales"}</div>
+            <div className="tnum text-[2.6rem] font-bold leading-none" style={{ color: overcommit ? "var(--color-brick)" : "var(--color-ink)" }}>{fmt.money(lockedCash)}</div>
+            {lockedCash !== projectedCash && <div className="mt-1 text-[0.74rem]" style={{ color: "var(--color-inksoft)" }}>after the cuts below — as entered, the plan would leave <b className="tnum" style={{ color: "var(--color-brick)" }}>{fmt.money(projectedCash)}</b></div>}
+            {team && diffs.rows.length > 0 && Math.abs(myCash - projectedCash) >= 0.5 && (
+              <div className="mt-1 text-[0.8rem]" style={{ color: "var(--color-inksoft)" }}>Your form alone would give <b className="tnum" style={{ color: "var(--color-ink)" }}>{fmt.money(myCash)}</b></div>
+            )}
+            <div className="mt-3 grid gap-1 pt-2.5" style={{ borderTop: "1px solid var(--color-line)" }}>
+              {invOn && brewSpend > 0 && <CommitRow label="Brewing" value={`−${fmt.money(brewSpend)}`} />}
+              {investSpend + infoSpend > 0 && <CommitRow label="Investment & research" value={`−${fmt.money(investSpend + infoSpend)}`} />}
+              {moduleSpend > 0 && <CommitRow label="Plays, programs & entry" value={`−${fmt.money(moduleSpend)}`} />}
+              {instrDraws > 0 && <CommitRow label="Alt. financing" value={`+${fmt.money(instrDraws)}`} tone="hop" />}
+              {netFinancing !== 0 && <CommitRow label="Net financing" value={fmt.signed(netFinancing)} tone={netFinancing < 0 ? "brick" : "hop"} />}
+              {/* 11-06 (Devin): the asked-for number never reads as the number that arrives */}
+              {planGrant && planGrant.requestedDraw - planGrant.draw >= 0.5 && <div data-testid="loan-cap" className="text-[0.72rem] leading-snug" style={{ color: "var(--color-brick)" }}>{planGrant.draw < 0.5 ? `The bank won't lend this quarter: none of the ${fmt.money(planGrant.requestedDraw)} asked arrives.` : `The bank lends ${fmt.money(planGrant.draw)} of the ${fmt.money(planGrant.requestedDraw)} asked.`}</div>}
+              {planGrant && planGrant.equityAsked - planGrant.equityGross >= 0.5 && <div data-testid="equity-cap" className="text-[0.72rem] leading-snug" style={{ color: "var(--color-brick)" }}>{planGrant.equityGross < 0.5 ? `No investor will buy in: none of the ${fmt.money(planGrant.equityAsked)} asked arrives.` : `Investors put in ${fmt.money(planGrant.equityGross)} of the ${fmt.money(planGrant.equityAsked)} asked.`}</div>}
+              {lastCov != null && lastCov <= 900 && <CommitRow label="Interest coverage (last)" value={`${lastCov.toFixed(1)}×`} />}
+            </div>
+            {running && running.total > 0 && (
+              <div data-testid="running-costs" className="mt-2.5 grid gap-1 pt-2" style={{ borderTop: "1px solid var(--color-line)" }}>
+                <CommitRow label="Running costs, paid from sales" value={`−${fmt.money(running.total)}`} />
+                <div className="text-[0.68rem] leading-snug" style={{ color: "var(--color-faint)" }}>
+                  Overhead, upkeep{running.payroll > 0 ? ", payroll" : ""}{running.facilities > 0 ? ", rent" : ""}{running.interest > 0 ? ", interest" : ""} — due whatever you sell
+                </div>
+                {breakEvenDrinks != null
+                  ? <CommitRow label="Break-even" value={`≈ ${fmt.int(breakEvenDrinks)} drinks`} />
+                  : <div className="text-[0.72rem] leading-snug" style={{ color: "var(--color-inksoft)" }}>{invOn ? "Set a price to see the break-even." : "Prices under unit cost: every drink sold adds to the loss."}</div>}
+                {endIfRepeat != null && <CommitRow label={`If ${fmt.int(lastDrinks)} drinks sell again`} value={`≈ ${fmt.money(endIfRepeat)}`} tone={endIfRepeat < 0 ? "brick" : undefined} />}
+                {lockedCash - running.total < 0 && <>
+                  <CommitRow label="Sell nothing" value={fmt.money(lockedCash - running.total)} tone="brick" />
+                  {!(overcommit || (guard && guard.cuts.length > 0)) && <div className="text-[0.68rem] leading-snug" style={{ color: "var(--color-brick)" }}>{belowZeroCopy}</div>}
+                </>}
+              </div>
+            )}
+          </div>
+          {team && (diffs.rows.length > 0 ? (
+            <div data-testid="plan-differs" className="grid gap-2.5 px-4 py-3" style={{ background: "var(--wire-redbg)", borderTop: "3px solid var(--color-brick)", color: "var(--color-ink)" }}>
+              <div className="flex items-center gap-2.5">
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full font-mono text-base font-bold" style={{ background: "var(--color-brick)", color: "#fff" }}>{diffs.rows.length}</span>
+                <span className="text-[1.02rem] font-semibold leading-tight">{diffHeadline(diffs)}</span>
+              </div>
+              {/* One stacked block per lever (lever + who decides, then LOCKS, then YOU TYPED). A
+                  three-column table squeezed the lever column to nothing in this ~320px rail as soon
+                  as a value ran long — the names overprinted the numbers. */}
+              <div className="grid text-[0.8rem]">
+                {diffs.rows.map((r) => {
+                  const mineWins = r.winner === "me";
+                  const sameVal = mineWins || leverText(String(r.field), r.locks, view) === leverText(String(r.field), r.mine, view);
+                  const tag = "w-[4.6rem] shrink-0 font-mono text-[0.52rem] font-semibold uppercase tracking-[0.1em]";
+                  return (
+                    <div key={String(r.field)} className="grid min-w-0 gap-1 py-2" style={{ borderTop: "1px solid var(--color-line)" }}>
+                      <div className="leading-snug"><b>{r.label}</b><span className="block text-[0.74rem]" style={{ color: "var(--color-inksoft)" }}>{r.who}</span></div>
+                      <div className="flex min-w-0 items-baseline gap-2"><span className={tag} style={{ color: "var(--color-inksoft)" }}>Locks</span><span className="tnum min-w-0 font-bold" style={{ color: mineWins ? "var(--color-hop)" : "var(--color-brick)" }}>{T(r.field, r.locks)}</span></div>
+                      {!mineWins && <div className="flex min-w-0 items-baseline gap-2"><span className={tag} style={{ color: "var(--color-inksoft)" }}>{r.changed ? "You typed" : "Your form"}</span><span className="tnum min-w-0" style={{ color: "var(--color-inksoft)", textDecoration: sameVal ? "none" : "line-through" }}>{T(r.field, r.mine)}</span></div>}
+                      {r.action && <button type="button" data-dw-action={r.action} onClick={() => rowAction(r)} className="justify-self-start rounded-[8px] px-2.5 py-1 font-mono text-[0.6rem] font-bold uppercase tracking-wide" style={{ border: `${r.action === "undo" ? 1 : 2}px solid ${r.action === "undo" ? "var(--color-line2)" : "var(--color-ink)"}`, color: r.action === "undo" ? "var(--color-inksoft)" : "var(--color-ink)" }}>{actionLabel(r.action)}</button>}
+                    </div>
+                  );
+                })}
+              </div>
+              {canAct && (
+                <div className="flex gap-2">
+                  {!isCeoSeat && <button type="button" onClick={takeCeo} disabled={!diffs.rows.some((r) => r.ceoValue !== undefined)} className="flex-1 rounded-[10px] px-2 py-2 font-mono text-[0.66rem] font-bold uppercase tracking-wide disabled:opacity-40" style={{ border: "2px solid var(--color-ink)", color: "var(--color-ink)" }}>Take the CEO's numbers</button>}
+                  <button type="button" onClick={keepMine} className="flex-1 rounded-[10px] px-2 py-2 font-mono text-[0.66rem] font-bold uppercase tracking-wide" style={{ border: "1px solid var(--color-line2)", color: "var(--color-inksoft)" }}>Keep mine</button>
+                </div>
+              )}
+              <div className="text-[0.74rem] leading-snug" style={{ color: "var(--color-inksoft)" }}>
+                {(ROLE_DESK[seatRole ?? ""] ?? "all") === "all"
+                  ? <ul className="grid gap-px"><li>· A seated teammate changed it → theirs runs</li><li>· They left it at last round's value → yours runs</li><li>· Empty chair → last round's plan, unless covered</li><li>· Change a covered lever and, as CEO, yours is final: Keep mine (or Cancel it) overrules; Use theirs takes theirs</li></ul>
+                  : `Untouched levers follow the CEO · change one (or Keep mine) to override${canAct ? " · a hold counts once you submit" : ""}.`}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 px-4 py-2.5 text-[0.84rem]" style={{ borderTop: "1px solid var(--color-line)", color: "var(--color-ink)" }}><span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: unsent ? "var(--color-copperdeep)" : "var(--color-hop)" }} />{unsent ? "Changed since your last submit — update to send it." : "Your form matches the team's plan."}</div>
+          ))}
+    </>
+  );
+  const railWarnings = (
+    <>
+            {guard && guard.cuts.length > 0 ? (
+              <div data-testid="guard-cuts" className="mb-3 rounded-lg px-3 py-2 text-[0.72rem] leading-snug" style={{ background: "var(--wire-redbg)", border: "1px solid color-mix(in srgb, var(--color-brick) 50%, transparent)", color: "var(--color-brick)" }}>
+                Cash + financing{guard.reserve >= 0.5 ? ` (after ${fmt.money(guard.reserve)} for running costs)` : ""} cover <b className="tnum">{fmt.money(guard.sources)}</b> of <b className="tnum">{fmt.money(guard.committed + guard.orders + guard.payouts + guard.cuts.reduce((a, x) => a + x.asked - x.kept, 0))}</b>{planGrant && planGrant.requestedDraw - planGrant.draw >= 0.5 ? ` · bank lends ${fmt.money(planGrant.draw)} of ${fmt.money(planGrant.requestedDraw)} asked` : ""}. Unless trimmed, the round cuts: {guard.cuts.map((x) => (x.kept >= 0.5 ? `${x.label} → ${fmt.money(x.kept)}` : `${x.label} (${fmt.money(x.asked)})`)).join(", ")}.
+              </div>
+            ) : overcommit && (
+              <div className="mb-3 rounded-lg px-3 py-2 text-[0.72rem] leading-snug" style={{ background: "var(--wire-redbg)", border: "1px solid color-mix(in srgb, var(--color-brick) 50%, transparent)", color: "var(--color-brick)" }}>Spending &gt; cash + financing. Sales must cover the gap and running costs — {belowZeroCopy}.</div>
+            )}
+            {unsent && diffs.rows.length > 0 && <div className="mb-2 rounded-lg px-3 py-2 text-[0.72rem] leading-snug" style={{ background: "var(--wire-amberbg)", border: "1px solid color-mix(in srgb, var(--color-copper) 45%, transparent)", color: "var(--color-copperdeep)" }}>Changed since you submitted — update to put it on the team's plan.</div>}
+    </>
+  );
+  const railCalls = callsSlot ? <div className="px-4 pb-3"><div className="pt-3" style={{ borderTop: "1px solid var(--color-line)" }}>{callsSlot}</div></div> : null;
+
   return (
-    <div className="grid gap-4 pb-20 lg:grid-cols-[minmax(0,1fr)_320px] lg:pb-0">
+    <div className="grid gap-4 pb-20 lg:grid-cols-[minmax(0,1fr)_320px] lg:pb-0 xl:grid-cols-[minmax(0,1fr)_300px_320px]">
       <EventModal event={prEvent} onChoose={onPrChoose} onClose={() => setPrModal(false)} />
       {detailEmp != null && (() => {
         const emp = employees.find((x) => x.id === detailEmp);
@@ -518,35 +688,50 @@ export function DecisionForm({
             weight={marketWeights[m.id] ?? (m.kind === "home" ? 1 : 0)}
             entered={m.kind === "home" || entered.includes(m.id)}
             perf={view.ownResult?.markets?.[m.id] ?? null}
+            rivals={marketRivals(view, m.id)}
             onClose={() => setMarketDetail(null)}
           />
         );
       })()}
+      <div className="grid min-w-0 content-start gap-4 lg:col-start-1 lg:row-start-1">
+      {cockpit}
       <div className={`grid content-start gap-4 ${twoCol ? "2xl:grid-cols-2" : ""}`}>
         <div className="grid min-w-0 content-start gap-4">
-        {/* Pricing */}
+        {/* Pricing — design pass 2: one "production line" per category (Control Room Glass). Each line reads its
+            share last round and, with prices public (or research bought), where the field priced it. */}
         <Card className={deskCls("commercial")}>
-          <Eyebrow>Lineup &amp; Pricing</Eyebrow>
-          <div className="mb-3 text-sm text-inksoft">Set your price in each category. Est. unit cost {fmt.price(view.unitCostEst)}.</div>
-          <div className="grid gap-3">
-            {activeSegs.map((s) => {
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3">
+            <Eyebrow>Production lines · pricing</Eyebrow>
+            <span className="tnum text-[0.72rem] text-inksoft">Unit cost ~{fmt.price(view.unitCostEst)}</span>
+          </div>
+          <div className="grid gap-2">
+            {activeSegs.map((s, i) => {
               const margin = d.price[s] - view.unitCostEst;
+              const share = view.ownResult?.segments?.[s]?.share;
+              const rivals = view.firms.filter((f) => !f.isYou && f.status === "active" && (f.priceBySeg?.[s] ?? 0) > 0).map((f) => f.priceBySeg[s]).sort((x, y) => x - y);
+              const med = rivals.length ? rivals[Math.floor((rivals.length - 1) / 2)] : null;
               return (
-                <div key={s} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <div className="flex w-36 min-w-0 items-center gap-2 sm:w-40">
-                    <CategoryCoin seg={s} size={28} />
-                    <div>
-                      <div className="text-sm font-semibold">{SEG_LABEL[s] ?? s}</div>
-                      <Tag tone="copper">{SEG_TAG[s] ?? s}</Tag>
+                <div key={s} data-dw-line={s} className="tt-inset grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-3 py-2.5">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <CategoryCoin seg={s} size={30} />
+                    <div className="min-w-0">
+                      <div className="font-mono text-[0.58rem] font-bold uppercase tracking-[0.14em] text-copper">Line {String.fromCharCode(65 + i)} · {SEG_TAG[s] ?? s}</div>
+                      <div className="truncate text-[0.95rem] font-extrabold leading-tight text-ink">{SEG_LABEL[s] ?? s}</div>
+                      <div className="mt-0.5 flex flex-wrap gap-x-3 text-[0.7rem] text-inksoft">
+                        {share != null && <span>Share <b className="tnum text-ink">{fmt.pct(share)}</b></span>}
+                        {med != null && <span title={`${rivals.length} rival${rivals.length === 1 ? "" : "s"} on the shelf last round`}>Field <b className="tnum text-ink">{fmt.price(rivals[0])}–{fmt.price(rivals[rivals.length - 1])}</b> · median <b className="tnum text-ink">{fmt.price(med)}</b></span>}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-inksoft">$</span>
-                    <input type="number" step="0.25" min="0" max={priceMax} value={d.price[s]} onChange={(e) => setPrice(s, Math.max(0, Math.min(priceMax, +e.target.value || 0)))} className="w-24 text-right" style={leverStyle("price")} />
+                  <div className="grid justify-items-end gap-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-inksoft">$</span>
+                      <input type="number" step="0.25" min="0" max={priceMax} value={d.price[s]} aria-label={`${SEG_LABEL[s] ?? s} price`} onChange={(e) => setPrice(s, Math.max(0, Math.min(priceMax, +e.target.value || 0)))} className="w-20 text-right" style={leverStyle("price", s)} />
+                    </div>
+                    <div className={`tnum text-[0.72rem] font-semibold ${margin > 0 ? "text-hop" : "text-brick"}`}>{margin >= 0 ? "+$" : "−$"}{Math.abs(margin).toFixed(2)} / drink</div>
                   </div>
-                  <div className={`tnum text-sm ${margin > 0 ? "text-hop" : "text-brick"}`}>{margin >= 0 ? "+$" : "−$"}{Math.abs(margin).toFixed(2)} / drink</div>
                   {pricedOut.has(s) && (
-                    <div className="w-full text-[0.68rem] leading-snug text-brick">Almost no one buys {SEG_LABEL[s] ?? s} at {fmt.price(d.price[s])}, so the tanks you allocate to it sit idle. To leave {SEG_LABEL[s] ?? s}, drag its share of capacity to 0 under Tanks &amp; Allocation.</div>
+                    <div className="col-span-2 text-[0.68rem] leading-snug text-brick">Almost no one buys {SEG_LABEL[s] ?? s} at {fmt.price(d.price[s])}, so its tanks sit idle. To leave it, drag its capacity share to 0 under Tanks &amp; Allocation.</div>
                   )}
                 </div>
               );
@@ -560,10 +745,10 @@ export function DecisionForm({
           <Eyebrow>Tanks &amp; Allocation</Eyebrow>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <label className="text-sm text-inksoft">Invest in tank capacity (builds with a one-round lag)</label>
+              <label className="text-sm text-inksoft">Tank order (new tanks arrive a round later)</label>
               <div className="mt-1 flex items-center gap-2">
                 <span className="text-inksoft">$</span>
-                <input type="number" step="5000" min="0" value={toDisplayMoney(d.invest_cap)} onChange={(e) => set({ invest_cap: Math.max(0, toEngineMoney(+e.target.value)) })} className="w-28 text-right" style={leverStyle("invest_cap")} />
+                <input aria-label="Tank order, dollars" type="number" step="5000" min="0" value={toDisplayMoney(d.invest_cap)} onChange={(e) => set({ invest_cap: Math.max(0, toEngineMoney(+e.target.value)) })} className="w-28 text-right" style={leverStyle("invest_cap")} />
               </div>
               <LeverNote f="invest_cap" />
               {(() => {
@@ -588,18 +773,19 @@ export function DecisionForm({
                 const when = cc.lag <= 0 ? "this quarter" : cc.lag === 1 ? "next quarter" : `in ${cc.lag} quarters`;
                 return (
                   <div className="mt-1.5 grid gap-0.5 text-[0.7rem] text-inksoft tnum">
-                    <div>Tanks cost <b className="text-ink">{fmt.price(perUnit)}</b> per unit of quarterly capacity.</div>
+                    {/* 11-07 readability pass: label → value rows instead of sentences. */}
+                    <KV k="Price">{fmt.price(perUnit)} per unit · one unit brews one drink a quarter</KV>
                     {mineCut && tAsked
-                      ? <div className="text-brick" data-testid="tank-cut">Cash and credit cover only <b>{fmt.money(tankCut!.kept)}</b> of this order{guard && guard.reserve >= 0.5 ? " once this quarter's running costs are set aside" : ""}. Unless the plan changes, the round cuts it to that: <b>+{fmt.int(t.added)}</b> units online {when}, not +{fmt.int(tAsked.added)}.</div>
-                      : <div>This spend buys <b className="text-ink">+{fmt.int(t.added)}</b> units, online {when}.</div>}
-                    {tankCut && !mineCut && <div className="text-brick" data-testid="tank-cut">The plan's tank order ({fmt.money(tankCut.asked)}) is more than cash and credit cover: unless it changes, the round cuts it to {fmt.money(tankCut.kept)}, +{fmt.int(tankOutlook(view.own, cc, tankCut.kept).added)} units online {when} instead of +{fmt.int(tankOutlook(view.own, cc, tankCut.asked).added)}.</div>}
-                    <div>Wear-out this quarter: <b className="text-ink">−{fmt.int(t.wear)}</b> units ({Math.round(cc.depreciation * 100)}% of what you own). {cc.lag >= 1 ? "To keep next quarter level with this one" : "To hold level"}, order <b className="text-ink">{fmt.money(holdLevel)}</b>.</div>
-                    <div className="mt-0.5 border-t border-line pt-0.5">
-                      This quarter brews with <b className="text-ink">{fmt.int(t.capThis)}</b> units{t.landNow >= 0.5 && <> ({fmt.int(t.landNow)} you ordered earlier come online)</>}
-                      {cc.lag >= 1 && <> → <b className={net < 0 ? "text-brick" : "text-ink"}>{fmt.int(t.capNext)}</b> next quarter{cc.lag === 1 ? (mineCut ? " with what you can pay for" : " with this order") : ""}<span className={net < 0 ? "text-brick" : "text-hop"}> ({net >= 0 ? "+" : "−"}{fmt.int(Math.abs(net))})</span></>}
-                    </div>
-                    <div>Every unit you own costs {fmt.price(cc.fixed_cost_per_unit)}/qtr in upkeep, brewed or idle.</div>
-                    <div>This order repeats every quarter until you change it — revisit it as your tanks fill up or sit idle.</div>
+                      ? <div className="text-brick" data-testid="tank-cut">Your cash and credit cover only <b>{fmt.money(tankCut!.kept)}</b> of this order{guard && guard.reserve >= 0.5 ? ", once running costs are set aside" : ""}. You get <b>+{fmt.int(t.added)}</b> units {when}, not +{fmt.int(tAsked.added)}.</div>
+                      : <KV k="This order buys">+{fmt.int(t.added)} units, brewing from {when}</KV>}
+                    {tankCut && !mineCut && <div className="text-brick" data-testid="tank-cut">The team's tank order ({fmt.money(tankCut.asked)}) is more than cash and credit cover, so it is cut to {fmt.money(tankCut.kept)}: +{fmt.int(tankOutlook(view.own, cc, tankCut.kept).added)} units {when}, not +{fmt.int(tankOutlook(view.own, cc, tankCut.asked).added)}.</div>}
+                    <KV k="Wear-out">−{fmt.int(t.wear)} units a quarter ({Math.round(cc.depreciation * 100)}%) · an order of {fmt.money(holdLevel)} keeps you level</KV>
+                    <KV k="Capacity">
+                      {fmt.int(t.capThis)} now{t.landNow >= 0.5 && <span className="text-inksoft"> (incl. {fmt.int(t.landNow)} landing)</span>}
+                      {cc.lag >= 1 && <> → <span className={net < 0 ? "text-brick" : ""}>{fmt.int(t.capNext)}</span> next<span className={net < 0 ? "text-brick" : "text-hop"}> ({net >= 0 ? "+" : "−"}{fmt.int(Math.abs(net))})</span></>}
+                    </KV>
+                    <KV k="Upkeep">{fmt.price(cc.fixed_cost_per_unit)} per unit each quarter, used or idle</KV>
+                    <div className="text-faint">↻ Repeats each quarter until you change it.</div>
                     {/* DW-084: the one demand number that argues for tanks — shoppers who picked you, where you sell, and
                         found you sold out (Review → Operations & Demand → Market size has the rest of the market). */}
                     {view.sizing && view.ownResult && (() => {
@@ -648,7 +834,7 @@ export function DecisionForm({
                 <label className="text-sm font-semibold">Run the line at</label>
                 <span className="tnum text-sm text-copperdeep">{Math.round(runRate * 100)}% of capacity</span>
               </div>
-              <input
+              <input aria-label="Run the line at, percent of capacity"
                 type="range" min="0" max="100" step="5"
                 value={Math.round(runRate * 100)}
                 onChange={(e) => set({ run_rate: Math.max(0, Math.min(1, +e.target.value / 100)) })}
@@ -680,7 +866,7 @@ export function DecisionForm({
                   <label className="text-sm font-semibold">{f.label}</label>
                   <span className="tnum text-xs text-inksoft">{fmt.money(d[f.key])}</span>
                 </div>
-                <input type="range" min="0" max={Math.max(120_000, Math.round(cash * 0.5))} step="1000" value={d[f.key]} onChange={(e) => set({ [f.key]: +e.target.value } as Partial<FirmDecision>)} className="mt-1 w-full" style={leverStyle(f.key)} />
+                <input aria-label={f.label} type="range" min="0" max={Math.max(120_000, Math.round(cash * 0.5))} step="1000" value={d[f.key]} onChange={(e) => set({ [f.key]: +e.target.value } as Partial<FirmDecision>)} className="mt-1 w-full" style={leverStyle(f.key)} />
                 <LeverNote f={f.key} />
                 <div className="text-[0.68rem] leading-snug text-inksoft">{f.hint}</div>
               </div>
@@ -707,16 +893,16 @@ export function DecisionForm({
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             {([
-              { key: "debt_draw", label: "Draw debt (cash in)", hint: "Borrow cash now; capped by your leverage." },
-              { key: "debt_repay", label: "Repay debt (cash out)", hint: "Lower leverage → cheaper future borrowing." },
-              { key: "equity_raise", label: "Raise equity (cash in)", hint: "Raise cash by issuing equity — dilutive, with an issue cost." },
-              { key: "dividend", label: "Pay dividend (cash out)", hint: "Returns cash to owners; capped at a fraction of cash." },
+              { key: "debt_draw", label: "Draw debt (cash in)", hint: "Capped by leverage." },
+              { key: "debt_repay", label: "Repay debt (cash out)", hint: "Lower leverage → cheaper borrowing." },
+              { key: "equity_raise", label: "Raise equity (cash in)", hint: "Dilutive, with an issue cost." },
+              { key: "dividend", label: "Pay dividend (cash out)", hint: "Capped at a share of cash." },
             ] as const).map((f) => (
               <div key={f.key}>
                 <label className="text-sm font-semibold">{f.label}</label>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="text-inksoft">$</span>
-                  <input type="number" step="5000" min="0" value={toDisplayMoney(d[f.key] as number)} onChange={(e) => set({ [f.key]: Math.max(0, toEngineMoney(+e.target.value)) } as Partial<FirmDecision>)} className="w-28 text-right" style={leverStyle(f.key)} />
+                  <input aria-label={`${f.label}, dollars`} type="number" step="5000" min="0" value={toDisplayMoney(d[f.key] as number)} onChange={(e) => set({ [f.key]: Math.max(0, toEngineMoney(+e.target.value)) } as Partial<FirmDecision>)} className="w-28 text-right" style={leverStyle(f.key)} />
                 </div>
                 <LeverNote f={f.key} />
                 <div className="text-[0.66rem] leading-snug text-inksoft">{f.hint}</div>
@@ -727,15 +913,15 @@ export function DecisionForm({
                   // v3 audit: the reason names whichever test binds — equity (3×) or operating cash flow (3× annual EBITDA).
                   const why = creditReason(g.limits, g.equityAfter, { finance: view.finance }, "your");
                   // 11-06 playtest: rounds 1–2 lend on equity alone; say when the cash-flow test arrives, before round 3 meets it.
-                  const cfLater = cfl && cfStart != null && cfStart > roundNo ? ` From round ${cfStart}, the bank also caps debt at ${cfl.ebitda_multiple}× annual operating cash flow (EBITDA).` : "";
+                  const cfLater = cfl && cfStart != null && cfStart > roundNo ? ` From round ${cfStart}, also at most ${cfl.ebitda_multiple}× a year of operating cash flow (EBITDA).` : "";
                   return lim < 1
                     ? <div className="text-[0.66rem] leading-snug text-brick">The bank won't lend this quarter: {why}.</div>
-                    : <div className={`text-[0.66rem] leading-snug tnum ${d.debt_draw > lim + 0.5 ? "text-brick" : "text-inksoft"}`}>The bank will lend up to <b>{fmt.money(lim)}</b> this quarter ({why}){d.debt_draw > lim + 0.5 ? " — only that much will be lent." : "."}{cfLater}</div>;
+                    : <div className={`text-[0.66rem] leading-snug tnum ${d.debt_draw > lim + 0.5 ? "text-brick" : "text-inksoft"}`}>Bank lends up to <b>{fmt.money(lim)}</b> ({why}){d.debt_draw > lim + 0.5 ? ". Only that much will be lent." : "."}{cfLater}</div>;
                 })()}
                 {f.key === "equity_raise" && equityGated && (
                   equityCap < 1
-                    ? <div className="text-[0.66rem] leading-snug text-brick">Equity market closed: your losses have pushed your valuation to zero or below, so no investor will buy in.</div>
-                    : <div className={`text-[0.66rem] leading-snug tnum ${d.equity_raise > equityCap ? "text-brick" : "text-inksoft"}`}>Investors will fund up to <b>{fmt.money(equityCap)}</b> this quarter ({Math.round((view.finance?.equity_gate?.max_fraction_of_valuation ?? 0) * 100)}% of your valuation){d.equity_raise > equityCap ? " — only that much will be raised." : "."}</div>
+                    ? <div className="text-[0.66rem] leading-snug text-brick">No investor will buy in: losses have taken the firm's value to zero.</div>
+                    : <div className={`text-[0.66rem] leading-snug tnum ${d.equity_raise > equityCap ? "text-brick" : "text-inksoft"}`}>Investors will fund up to <b>{fmt.money(equityCap)}</b> this quarter ({Math.round((view.finance?.equity_gate?.max_fraction_of_valuation ?? 0) * 100)}% of what the firm is worth){d.equity_raise > equityCap ? ". Only that much will be raised." : "."}</div>
                 )}
               </div>
             ))}
@@ -754,7 +940,7 @@ export function DecisionForm({
                   ) : (
                     <div className="mt-1 flex items-center gap-2">
                       <span className="text-inksoft">$</span>
-                      <input type="number" step="5000" min="0" value={toDisplayMoney(d.draw_convertible ?? 0)} onChange={(e) => set({ draw_convertible: Math.max(0, toEngineMoney(+e.target.value)) })} className="w-28 text-right" style={leverStyle("draw_convertible")} />
+                      <input aria-label="Convertible note, dollars" type="number" step="5000" min="0" value={toDisplayMoney(d.draw_convertible ?? 0)} onChange={(e) => set({ draw_convertible: Math.max(0, toEngineMoney(+e.target.value)) })} className="w-28 text-right" style={leverStyle("draw_convertible")} />
                     </div>
                   )}
                   <LeverNote f="draw_convertible" />
@@ -767,7 +953,7 @@ export function DecisionForm({
                   ) : (
                     <div className="mt-1 flex items-center gap-2">
                       <span className="text-inksoft">$</span>
-                      <input type="number" step="5000" min="0" value={toDisplayMoney(d.draw_rbf ?? 0)} onChange={(e) => set({ draw_rbf: Math.max(0, toEngineMoney(+e.target.value)) })} className="w-28 text-right" style={leverStyle("draw_rbf")} />
+                      <input aria-label="Revenue-based financing, dollars" type="number" step="5000" min="0" value={toDisplayMoney(d.draw_rbf ?? 0)} onChange={(e) => set({ draw_rbf: Math.max(0, toEngineMoney(+e.target.value)) })} className="w-28 text-right" style={leverStyle("draw_rbf")} />
                     </div>
                   )}
                   <LeverNote f="draw_rbf" />
@@ -849,7 +1035,7 @@ export function DecisionForm({
               return (
                 <div key={`build-${i}`} className="mt-1.5 flex items-center gap-2 rounded-md border border-copper/40 bg-copper/[0.06] px-2 py-1.5">
                   <span className="shrink-0 text-[0.7rem] font-semibold text-copperdeep">Building</span>
-                  <input value={b.name ?? ""} onChange={(e) => renameBuild(i, e.target.value)} placeholder={t?.label ?? "Name it"}
+                  <input aria-label="Name for this build" value={b.name ?? ""} onChange={(e) => renameBuild(i, e.target.value)} placeholder={t?.label ?? "Name it"}
                     className="min-w-0 flex-1 rounded border border-line bg-paper px-1.5 py-0.5 text-[0.72rem]" />
                   <span className="tnum shrink-0 text-[0.7rem] text-copperdeep">{fmt.money(t?.base_cost ?? 0)}</span>
                   <button type="button" onClick={() => removeBuild(i)} className="shrink-0 text-inksoft transition-colors hover:text-brick">✕</button>
@@ -864,7 +1050,7 @@ export function DecisionForm({
                   {facDistricts.length > 0 && (
                     <label className="flex items-center gap-1 normal-case tracking-normal">
                       <span>in</span>
-                      <select value={siteDistrict || facDistricts[0].id} onChange={(e) => setSiteDistrict(e.target.value)} className="rounded border border-line bg-paper px-1 py-0.5 text-[0.68rem] text-ink">
+                      <select aria-label="District" value={siteDistrict || facDistricts[0].id} onChange={(e) => setSiteDistrict(e.target.value)} className="rounded border border-line bg-paper px-1 py-0.5 text-[0.68rem] text-ink">
                         {facDistricts.map((dd) => <option key={dd.id} value={dd.id}>{dd.label} · rent ×{dd.rent_mult}</option>)}
                       </select>
                     </label>
@@ -931,7 +1117,7 @@ export function DecisionForm({
                       <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[0.64rem] text-inksoft">
                         <span>{roleLabel(e.role)} · {e.tenure_rounds}r tenure · {fmt.money(e.salary)}/round</span>
                         {loyCfg && (
-                          <span className="tnum rounded-[2px] px-1 font-semibold" style={{ background: loy > 0 ? "color-mix(in srgb, var(--color-hop) 14%, transparent)" : "var(--color-line)", color: loy > 0 ? "var(--color-hop)" : "var(--color-inksoft)" }} title={`Loyalty dividend: ${e.tenure_rounds} quarter${e.tenure_rounds === 1 ? "" : "s"} × morale — multiplies their contribution; lost if they leave`}>
+                          <span className="tnum rounded-[2px] px-1 font-semibold" style={{ background: loy > 0 ? "color-mix(in srgb, var(--color-hop) 14%, transparent)" : "var(--color-line)", color: loy > 0 ? "var(--color-hop)" : "var(--color-inksoft)" }} title={`Loyalty bonus: ${e.tenure_rounds} quarter${e.tenure_rounds === 1 ? "" : "s"} with you × morale raises what they contribute. It is lost if they leave.`}>
                             +{Math.round(loy * 100)}% loyalty
                           </span>
                         )}
@@ -989,8 +1175,8 @@ export function DecisionForm({
                             them too, the higher signing bonus wins; only the winner pays. */}
                         {picked && (
                           <div className="flex items-center justify-between gap-2 border-t border-line px-2 py-1.5">
-                            <span className="text-[0.58rem] leading-snug text-inksoft">Signing bonus <span className="opacity-75">· optional — wins them if a rival bids too; only the winner pays</span></span>
-                            <span className="flex shrink-0 items-center gap-1"><span className="text-[0.68rem] text-inksoft">$</span><input type="number" min="0" step="500" value={ebids[cnd.id] ?? 0} onChange={(e) => setHireBid(cnd.id, +e.target.value)} className="w-20 text-right text-[0.7rem]" /></span>
+                            <span className="text-[0.58rem] leading-snug text-inksoft">Signing bonus <span className="opacity-75">· optional. If a rival bids for the same person, the bigger bonus wins; only the winner pays.</span></span>
+                            <span className="flex shrink-0 items-center gap-1"><span className="text-[0.68rem] text-inksoft">$</span><input aria-label={`Signing bonus for ${cnd.name}, dollars`} type="number" min="0" step="500" value={ebids[cnd.id] ?? 0} onChange={(e) => setHireBid(cnd.id, +e.target.value)} className="w-20 text-right text-[0.7rem]" /></span>
                           </div>
                         )}
                       </div>
@@ -1060,7 +1246,7 @@ export function DecisionForm({
                         </button>
                         {!isIn && m.entry_cost > 0 && (marketWeights[m.id] ?? 0) > 0 && <span className="text-[0.64rem] text-brick">enter · {fmt.money(m.entry_cost)}</span>}
                       </div>
-                      <input type="range" min="0" max="100" step="5" value={Math.round(w * 100)} onChange={(e) => setWeight(m.id, +e.target.value / 100)} className="w-full" />
+                      <input aria-label={`Share of capacity for ${marketName(m.id, m.label)}`} type="range" min="0" max="100" step="5" value={Math.round(w * 100)} onChange={(e) => setWeight(m.id, +e.target.value / 100)} className="w-full" />
                     </div>
                   );
                 })}
@@ -1104,10 +1290,10 @@ export function DecisionForm({
                   <span className="text-sm font-semibold">Water efficiency</span>
                   <span className="tnum text-xs text-inksoft">{fmt.money(Math.max(0, d.invest_water_efficiency ?? 0))}</span>
                 </div>
-                <input type="range" min="0" max={Math.max(80_000, Math.round(cash * 0.3))} step="1000" value={Math.max(0, d.invest_water_efficiency ?? 0)} onChange={(e) => set({ invest_water_efficiency: +e.target.value })} className="mt-1 w-full" style={leverStyle("invest_water_efficiency")} />
+                <input aria-label="Water efficiency, dollars" type="range" min="0" max={Math.max(80_000, Math.round(cash * 0.3))} step="1000" value={Math.max(0, d.invest_water_efficiency ?? 0)} onChange={(e) => set({ invest_water_efficiency: +e.target.value })} className="mt-1 w-full" style={leverStyle("invest_water_efficiency")} />
                 <LeverNote f="invest_water_efficiency" />
                 <div className="text-[0.68rem] leading-snug text-inksoft">
-                  Builds resilience to the water shock &amp; earns regulator goodwill. {view.own.water_efficiency > 0.1 ? `Efficiency stock ${view.own.water_efficiency.toFixed(1)}.` : ""}
+                  Softens a water shortage and earns regulators' trust. {view.own.water_efficiency > 0.1 ? `Water efficiency so far: ${view.own.water_efficiency.toFixed(1)}.` : ""}
                 </div>
               </div>
             )}
@@ -1118,7 +1304,7 @@ export function DecisionForm({
                   <span className="text-sm font-semibold">R&amp;D — the new category</span>
                   <span className="tnum text-xs text-inksoft">{fmt.money(Math.max(0, d.invest_rnd ?? 0))}</span>
                 </div>
-                <input type="range" min="0" max={Math.max(120_000, Math.round(cash * 0.4))} step="1000" value={Math.max(0, d.invest_rnd ?? 0)} onChange={(e) => set({ invest_rnd: +e.target.value })} className="mt-1 w-full" style={leverStyle("invest_rnd")} />
+                <input aria-label="R&D, dollars" type="range" min="0" max={Math.max(120_000, Math.round(cash * 0.4))} step="1000" value={Math.max(0, d.invest_rnd ?? 0)} onChange={(e) => set({ invest_rnd: +e.target.value })} className="mt-1 w-full" style={leverStyle("invest_rnd")} />
                 <LeverNote f="invest_rnd" />
                 <div className="text-[0.68rem] leading-snug text-inksoft">
                   {frontierActive ? "The frontier category is open — R&D no longer pulls it forward." : "Race to open the frontier category early; the leader gets a first-mover head start."}
@@ -1142,7 +1328,7 @@ export function DecisionForm({
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         <span className="text-inksoft">$</span>
-                        <input type="number" step="10" min="0" value={contribs[g.id] ?? 0} onChange={(e) => setContribution(g.id, +e.target.value)} className="w-20 text-right" />
+                        <input aria-label={`Contribution to ${GOOD_LABEL[g.id] ?? g.id}, dollars`} type="number" step="10" min="0" value={contribs[g.id] ?? 0} onChange={(e) => setContribution(g.id, +e.target.value)} className="w-20 text-right" />
                       </div>
                     </div>
                   ))}
@@ -1263,7 +1449,7 @@ export function DecisionForm({
                         <span className="text-[0.78rem] text-inksoft">Your offer</span>
                         <span className="flex items-center gap-1">
                           <span className="text-inksoft">$</span>
-                          <input type="number" step="5000" min="0" value={toDisplayMoney(bid.price)} onChange={(e) => set({ acquisition_bid: { ...bid, price: Math.max(0, toEngineMoney(+e.target.value)) } })} className="w-24 text-right" />
+                          <input aria-label="Your offer, dollars" type="number" step="5000" min="0" value={toDisplayMoney(bid.price)} onChange={(e) => set({ acquisition_bid: { ...bid, price: Math.max(0, toEngineMoney(+e.target.value)) } })} className="w-24 text-right" />
                         </span>
                         <Tag tone={targetable ? "hop" : "ink"}>{targetable ? "Distressed · acquirable" : "Not in distress"}</Tag>
                       </div>
@@ -1296,7 +1482,7 @@ export function DecisionForm({
                   <span className="text-[0.72rem] text-inksoft">Lobbying budget {lobTargeted ? "" : "— pick a target below"}</span>
                   <span className="tnum text-xs text-inksoft">{fmt.money(lobSpendEff)}</span>
                 </div>
-                <input type="range" min="0" max={Math.max(80_000, Math.round(cash * 0.3))} step="1000" value={lobSpend} onChange={(e) => setLobby({ lobby_spend: +e.target.value })} className="mt-1 w-full" style={leverStyle("lobby_spend")} />
+                <input aria-label="Lobbying budget, dollars" type="range" min="0" max={Math.max(80_000, Math.round(cash * 0.3))} step="1000" value={lobSpend} onChange={(e) => setLobby({ lobby_spend: +e.target.value })} className="mt-1 w-full" style={leverStyle("lobby_spend")} />
                 <LeverNote f="lobby_spend" />
                 <div className="mt-1 grid gap-1.5">
                   {lobInits.map((it) => {
@@ -1352,8 +1538,8 @@ export function DecisionForm({
               <LeverNote f="buy_info" />
               <div className={`mt-0.5 text-[0.68rem] ${d.buy_info || infoLocked ? "text-hop" : "text-inksoft"}`}>
                 {infoLocked
-                  ? `✓ Purchased for this round${buyer ? ` by ${buyer}` : ""} — the report is already in your team's hands, so it can't be returned. Rivals' quality, brand, pricing & the strategy map are open in the Field & Intel tab.`
-                  : d.buy_info ? "✓ Rivals' quality, brand, pricing & the strategy map are unlocked in the Field & Intel tab." : `Reveals rival positioning in the Field & Intel tab this round${team ? " — for the whole team; any chair can buy it" : ""}. Once you open the report, the purchase stands.`}
+                  ? `✓ Purchased for this round${buyer ? ` by ${buyer}` : ""} — the report is already in your team's hands, so it can't be returned. ${view.researchReports ? "The retail scan, consumer survey and analyst brief are" : `Rivals' quality, brand, ${view.publicPrices ? "shares" : "pricing"} & the strategy map are`} open in the Field & Intel tab.`
+                  : d.buy_info ? `✓ ${view.researchReports ? "The retail scan, consumer survey and analyst brief are" : `Rivals' quality, brand, ${view.publicPrices ? "shares" : "pricing"} & the strategy map are`} unlocked in the Field & Intel tab.` : `${view.researchReports ? "Three reports in Field & Intel: a retail scan of every brewery's sales, a consumer survey with an NPS-style score, an analyst brief" : `Reveals rivals' quality, brand, capacity${view.publicPrices ? ", category shares" : ", prices"} and the strategy map (Field & Intel)`} this round${team ? " — for the whole team; any chair can buy it" : ""}. Once you open the report, the purchase stands.`}
               </div>
             </div>
             <label className="flex items-center gap-2 text-sm">
@@ -1361,7 +1547,7 @@ export function DecisionForm({
               <input type="number" min="1" max={view.standings.length || 8} value={d.beliefs?.own_rank ?? ""} onChange={(e) => set({ beliefs: { ...d.beliefs, own_rank: e.target.value ? +e.target.value : undefined } })} className="w-16 text-center" />
             </label>
           </div>
-          <textarea
+          <textarea aria-label="Your strategy this round, in one line"
             placeholder="One line on your strategy this round…"
             value={d.reflection ?? ""}
             onChange={(e) => set({ reflection: e.target.value })}
@@ -1370,128 +1556,54 @@ export function DecisionForm({
         </Card>
         </div>
       </div>
+      </div>
 
       {/* Commit panel (DW-077, design §C "What locks at round end") — pinned on desktop. Leads with
           the cash the TEAM's plan locks; when this form differs, the form-alone number under it, the
           differs block (who decides · locks · you typed), then Submit. Solo firms: the same rail
           without the team block. */}
-      <div className="grid content-start gap-3 lg:sticky lg:top-[4.25rem] lg:max-h-[calc(100vh-5.25rem)] lg:self-start lg:overflow-y-auto">
+      <div ref={setRailEl} data-dw="commit-rail" className="grid content-start gap-3 lg:sticky lg:top-[4.25rem] lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:max-h-[calc(100vh-5.25rem)] lg:self-start lg:overflow-y-auto xl:col-start-3 xl:row-span-1">
         {/* Dark-walnut commit rail (dark in both modes; metallic top glint). With many differing
             levers the rail outgrows the viewport — it scrolls within its sticky column, so the
             Submit button at its foot is always reachable (the right rail in Play.tsx does the same). */}
-        <div className="overflow-hidden rounded-[15px]" style={{ background: "var(--tt-wood)", border: "1px solid rgba(0,0,0,.4)", boxShadow: "inset 0 1px 0 rgba(255,240,205,.16), 0 0 0 1px var(--metal), 0 18px 36px rgba(0,0,0,.4)" }}>
-          <div className="flex items-center justify-between px-4 py-2.5" style={{ borderBottom: "1px solid rgba(0,0,0,.32)", background: "linear-gradient(rgba(255,220,150,.10), rgba(255,220,150,0))" }}>
-            <span className="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em]" style={{ color: "#f0b94e" }}>{team ? "What locks at round end" : "Commit the round"}</span>
-            <span className="font-mono text-[0.55rem] uppercase tracking-wide" style={{ color: "#bda079" }}>Round {roundNo}</span>
-          </div>
-          <div className="px-4 pt-3 pb-3">
-            {/* DW-084: what the firm has to work with, before anything is planned — Sprint 2's teams never
-                saw the bank's limit, the investors' limit or the overdraft, and planned past all three. */}
-            <div data-testid="cash-and-credit" className="mb-3 grid gap-1 pb-2.5" style={{ borderBottom: "1px solid rgba(255,240,205,.13)" }}>
-              <div className="font-mono text-[0.58rem] uppercase tracking-[0.1em]" style={{ color: "#bda079" }}>Cash &amp; credit this quarter</div>
-              <CommitRow label="Cash on hand" value={fmt.money(cash)} />
-              {bankLine != null && <CommitRow label="The bank lends up to" value={fmt.money(bankLine)} tone={bankLine >= 0.5 ? undefined : "brick"} />}
-              {equityGated && <CommitRow label="Investors put in up to" value={fmt.money(equityCap)} tone={equityCap >= 0.5 ? undefined : "brick"} />}
-              {odCfg && <CommitRow label="Emergency overdraft" value={`up to ${fmt.money(odLimit)}`} />}
-              {view.finance && (
-                <div className="text-[0.68rem] leading-snug" style={{ color: "#a98a5f" }}>
-                  Debt can't pass {view.finance.max_leverage}× equity{cfl ? (cfStart != null && cfStart > roundNo ? ` (from round ${cfStart}, also ${cfl.ebitda_multiple}× annual operating cash flow)` : ` or ${cfl.ebitda_multiple}× annual operating cash flow`) : ""}{equityGated ? `; investors put in at most ${(view.finance.equity_gate?.max_fraction_of_valuation ?? 0.5) === 0.5 ? "half" : fmt.pct(view.finance.equity_gate?.max_fraction_of_valuation ?? 0.5)} of your valuation` : ""}{odCfg ? `; the overdraft is a last resort at the penalty rate, and a firm that needs more closes` : ""}.
-                </div>
-              )}
-            </div>
-            <div className="font-mono text-[0.58rem] uppercase tracking-[0.1em]" style={{ color: "#bda079" }}>{team ? "On the team's plan · projected cash · pre-sales" : "Projected cash · pre-sales"}</div>
-            <div className="tnum text-[2.6rem] font-bold leading-none" style={{ color: overcommit ? "#e59178" : "#f4e6c8" }}>{fmt.money(lockedCash)}</div>
-            {lockedCash !== projectedCash && <div className="mt-1 text-[0.74rem]" style={{ color: "#bda079" }}>after the cuts below — as entered, the plan would leave <b className="tnum" style={{ color: "#e59178" }}>{fmt.money(projectedCash)}</b></div>}
-            {team && diffs.rows.length > 0 && Math.abs(myCash - projectedCash) >= 0.5 && (
-              <div className="mt-1 text-[0.8rem]" style={{ color: "#bda079" }}>Your form alone would give <b className="tnum" style={{ color: "#f2e4c4" }}>{fmt.money(myCash)}</b></div>
-            )}
-            <div className="mt-3 grid gap-1 pt-2.5" style={{ borderTop: "1px solid rgba(255,240,205,.13)" }}>
-              {invOn && brewSpend > 0 && <CommitRow label="Brewing" value={`−${fmt.money(brewSpend)}`} />}
-              {investSpend + infoSpend > 0 && <CommitRow label="Investment & research" value={`−${fmt.money(investSpend + infoSpend)}`} />}
-              {moduleSpend > 0 && <CommitRow label="Plays, programs & entry" value={`−${fmt.money(moduleSpend)}`} />}
-              {instrDraws > 0 && <CommitRow label="Alt. financing" value={`+${fmt.money(instrDraws)}`} tone="hop" />}
-              {netFinancing !== 0 && <CommitRow label="Net financing" value={fmt.signed(netFinancing)} tone={netFinancing < 0 ? "brick" : "hop"} />}
-              {/* 11-06 (Devin): the asked-for number never reads as the number that arrives */}
-              {planGrant && planGrant.requestedDraw - planGrant.draw >= 0.5 && <div data-testid="loan-cap" className="text-[0.72rem] leading-snug" style={{ color: "#eaa088" }}>{planGrant.draw < 0.5 ? `The bank won't lend this quarter: none of the ${fmt.money(planGrant.requestedDraw)} asked arrives.` : `The bank lends ${fmt.money(planGrant.draw)} of the ${fmt.money(planGrant.requestedDraw)} asked.`}</div>}
-              {planGrant && planGrant.equityAsked - planGrant.equityGross >= 0.5 && <div data-testid="equity-cap" className="text-[0.72rem] leading-snug" style={{ color: "#eaa088" }}>{planGrant.equityGross < 0.5 ? `No investor will buy in: none of the ${fmt.money(planGrant.equityAsked)} asked arrives.` : `Investors put in ${fmt.money(planGrant.equityGross)} of the ${fmt.money(planGrant.equityAsked)} asked.`}</div>}
-              {lastCov != null && lastCov <= 900 && <CommitRow label="Interest coverage (last)" value={`${lastCov.toFixed(1)}×`} />}
-            </div>
-            {running && running.total > 0 && (
-              <div data-testid="running-costs" className="mt-2.5 grid gap-1 pt-2" style={{ borderTop: "1px solid rgba(255,240,205,.13)" }}>
-                <CommitRow label="Running costs, paid from sales" value={`−${fmt.money(running.total)}`} />
-                <div className="text-[0.72rem] leading-snug" style={{ color: "#bda079" }}>
-                  Overhead, tank upkeep{running.payroll > 0 ? ", payroll" : ""}{running.facilities > 0 ? ", rent" : ""}{running.interest > 0 ? ", interest" : ""} — due whatever you sell.{" "}
-                  {breakEvenDrinks != null
-                    ? <>Covering them takes about <b className="tnum" style={{ color: "#f2e4c4" }}>{fmt.int(breakEvenDrinks)}</b> drinks at your prices.</>
-                    : <>{invOn ? "Set a price to see how many drinks cover them." : "Your prices are under unit cost, so every drink sold adds to the loss."}</>}
-                  {endIfRepeat != null && <> If sales repeat last quarter's ({fmt.int(lastDrinks)} drinks), you end near <b className="tnum" style={{ color: endIfRepeat < 0 ? "#e59178" : "#f2e4c4" }}>{fmt.money(endIfRepeat)}</b>.</>}
-                  {lockedCash - running.total < 0 && <> Sell nothing and you end at <b className="tnum" style={{ color: "#e59178" }}>{fmt.money(lockedCash - running.total)}</b>{overcommit || (guard && guard.cuts.length > 0) ? "." : <>: {belowZeroCopy}.</>}</>}
-                </div>
-              </div>
-            )}
-          </div>
-          {team && (diffs.rows.length > 0 ? (
-            <div data-testid="plan-differs" className="grid gap-2.5 px-4 py-3" style={{ background: "rgba(216,106,82,.14)", borderTop: "3px solid #e59178", color: "#f2e4c4" }}>
-              <div className="flex items-center gap-2.5">
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full font-mono text-base font-bold" style={{ background: "#e59178", color: "#1b130c" }}>{diffs.rows.length}</span>
-                <span className="text-[1.02rem] font-semibold leading-tight">{diffHeadline(diffs)}</span>
-              </div>
-              {/* One stacked block per lever (lever + who decides, then LOCKS, then YOU TYPED). A
-                  three-column table squeezed the lever column to nothing in this ~320px rail as soon
-                  as a value ran long — the names overprinted the numbers. */}
-              <div className="grid text-[0.8rem]">
-                {diffs.rows.map((r) => {
-                  const mineWins = r.winner === "me";
-                  const sameVal = mineWins || leverText(String(r.field), r.locks, view) === leverText(String(r.field), r.mine, view);
-                  const tag = "w-[4.6rem] shrink-0 font-mono text-[0.52rem] font-semibold uppercase tracking-[0.1em]";
-                  return (
-                    <div key={String(r.field)} className="grid min-w-0 gap-1 py-2" style={{ borderTop: "1px solid rgba(255,240,205,.14)" }}>
-                      <div className="leading-snug"><b>{r.label}</b><span className="block text-[0.74rem]" style={{ color: "#bda079" }}>{r.who}</span></div>
-                      <div className="flex min-w-0 items-baseline gap-2"><span className={tag} style={{ color: "#bda079" }}>Locks</span><span className="tnum min-w-0 font-bold" style={{ color: mineWins ? "#9fce63" : "#e59178" }}>{T(r.field, r.locks)}</span></div>
-                      {!mineWins && <div className="flex min-w-0 items-baseline gap-2"><span className={tag} style={{ color: "#bda079" }}>{r.changed ? "You typed" : "Your form"}</span><span className="tnum min-w-0" style={{ color: "#bda079", textDecoration: sameVal ? "none" : "line-through" }}>{T(r.field, r.mine)}</span></div>}
-                      {r.action && <button type="button" data-dw-action={r.action} onClick={() => rowAction(r)} className="justify-self-start rounded-[8px] px-2.5 py-1 font-mono text-[0.6rem] font-bold uppercase tracking-wide" style={{ border: `${r.action === "undo" ? 1 : 2}px solid ${r.action === "undo" ? "rgba(255,240,205,.35)" : "#f2e4c4"}`, color: r.action === "undo" ? "#bda079" : "#f2e4c4" }}>{actionLabel(r.action)}</button>}
-                    </div>
-                  );
-                })}
-              </div>
-              {canAct && (
-                <div className="flex gap-2">
-                  {!isCeoSeat && <button type="button" onClick={takeCeo} disabled={!diffs.rows.some((r) => r.ceoValue !== undefined)} className="flex-1 rounded-[10px] px-2 py-2 font-mono text-[0.66rem] font-bold uppercase tracking-wide disabled:opacity-40" style={{ border: "2px solid #f2e4c4", color: "#f2e4c4" }}>Take the CEO's numbers</button>}
-                  <button type="button" onClick={keepMine} className="flex-1 rounded-[10px] px-2 py-2 font-mono text-[0.66rem] font-bold uppercase tracking-wide" style={{ border: "1px solid rgba(255,240,205,.35)", color: "#bda079" }}>Keep mine</button>
-                </div>
-              )}
-              <div className="text-[0.74rem] leading-snug" style={{ color: "#bda079" }}>
-                {(ROLE_DESK[seatRole ?? ""] ?? "all") === "all"
-                  ? "These levers sit on a seated teammate's desk, so their number is used where they changed it; where they left a lever at last round's value, yours runs. An empty chair carries last round's plan unless someone covers it. A teammate's cover stands until you change that lever — then, as CEO, yours is final for the round: Keep mine (or Cancel it, for a build or hire) overrules a cover, and Use theirs takes their number."
-                  : `A lever you leave at last round's value follows the CEO. Change it yourself (or Keep mine) to override.${canAct ? " A hold is a promise until you submit." : ""}`}
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 px-4 py-2.5 text-[0.84rem]" style={{ borderTop: "1px solid rgba(255,240,205,.13)", color: "#f2e4c4" }}><span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: unsent ? "#f0b94e" : "#9fce63" }} />{unsent ? "You've changed your desk since you submitted — the team's plan still has your last submit. Update to send it." : "Your form matches the team's plan."}</div>
-          ))}
-          <div className="px-4 pb-3 pt-2" style={{ borderTop: team ? "1px solid rgba(255,240,205,.13)" : undefined }}>
-            {guard && guard.cuts.length > 0 ? (
-              <div data-testid="guard-cuts" className="mb-3 rounded-lg px-3 py-2 text-[0.72rem] leading-snug" style={{ background: "rgba(216,106,82,.16)", border: "1px solid rgba(216,106,82,.5)", color: "#eaa088" }}>
-                {guard.reserve >= 0.5 ? `After ${fmt.money(guard.reserve)} set aside for running costs, cash` : "Cash"} plus the financing you'll get covers {fmt.money(guard.sources)} of {fmt.money(guard.committed + guard.orders + guard.payouts + guard.cuts.reduce((a, x) => a + x.asked - x.kept, 0))}{planGrant && planGrant.requestedDraw - planGrant.draw >= 0.5 ? ` (the bank lends ${fmt.money(planGrant.draw)} of the ${fmt.money(planGrant.requestedDraw)} asked)` : ""}. Unless you trim the plan, this gets cut: {guard.cuts.map((x) => (x.kept >= 0.5 ? `${x.label} to ${fmt.money(x.kept)}` : `${x.label} (${fmt.money(x.asked)})`)).join(", ")}.
-              </div>
-            ) : overcommit && (
-              <div className="mb-3 rounded-lg px-3 py-2 text-[0.72rem] leading-snug" style={{ background: "rgba(216,106,82,.16)", border: "1px solid rgba(216,106,82,.5)", color: "#eaa088" }}>Spending exceeds your cash plus the financing you'll actually get. Sales must cover the gap and the running costs — {belowZeroCopy}.</div>
-            )}
-            {unsent && diffs.rows.length > 0 && <div className="mb-2 rounded-lg px-3 py-2 text-[0.72rem] leading-snug" style={{ background: "rgba(240,185,78,.14)", border: "1px solid rgba(240,185,78,.45)", color: "#f2d9a0" }}>You've changed your desk since you submitted — it isn't on the team's plan until you update.</div>}
+        {/* overflow-clip, not hidden: it clips the corners without becoming a scroll box, so the Submit block
+            below can pin to the bottom of the rail's own scroll (11-07: the decision is always one click away). */}
+        <div className="overflow-clip rounded-[18px]" style={{ background: "var(--prism) top center / 100% 1px no-repeat, var(--sheen), var(--glass)", border: "1px solid var(--gb)", boxShadow: "var(--gs)" }}>
+          {railHead}
+          {railBody}
+          <div data-dw="commit-submit" className="px-4 pb-3 pt-2 lg:sticky lg:bottom-0 lg:z-[1] lg:shadow-[0_-12px_24px_rgba(0,0,0,0.18)]" style={{ borderTop: team ? "1px solid var(--color-line)" : undefined, background: "var(--sheen), var(--color-panel)" }}>
+            {railWarnings}
             <Button variant="go" onClick={() => onPlay(mergeDecision(view, d, cityActions, poaches))} disabled={busy} className="mt-1 w-full py-3 text-base">
               {submitText()}
             </Button>
-            <div className="mt-1.5 text-center text-[0.66rem]" style={{ color: "#a98a5f" }}>{footerNote ?? "Seven rival breweries brew at the same time."}</div>
-            {/* DW-082e: the calls sit BELOW Submit — above it they pushed the button a long scroll down the rail
-                (playtest 10-28). Safe: a tap saves on its own within a second (Calls.tsx), and submit re-sends them. */}
-            {callsSlot && <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,240,205,.13)" }}>{callsSlot}</div>}
+            <div className="mt-1.5 text-center text-[0.66rem]" style={{ color: "var(--color-faint)" }}>{footerNote ?? "Seven rival breweries brew at the same time."}</div>
           </div>
+          {/* DW-082e: the calls sit BELOW Submit — above it they pushed the button a long scroll down the rail
+              (playtest 10-28). Safe: a tap saves on its own within a second (Calls.tsx), and submit re-sends them. */}
+          {railCalls}
         </div>
       </div>
-      {/* Mobile-only bottom sheet — the differs block (first 2 rows, then "+N more"), TEAM LOCKS and the
-          submit button, always reachable while tuning desks (pr-16 clears the day/night toggle). */}
-      <div data-dw="commit-sheet" className="fixed inset-x-0 bottom-0 z-30 border-t border-line2 bg-panel/95 backdrop-blur lg:hidden" style={{ paddingBottom: "max(0.6rem, env(safe-area-inset-bottom))", borderRadius: "20px 20px 0 0", boxShadow: "0 -10px 30px rgba(0,0,0,.25)" }}>
-        {team && diffs.rows.length > 0 && (
+      {aside && <div data-dw="info-column" className="grid min-w-0 content-start gap-4 lg:col-start-1 lg:row-start-2 xl:sticky xl:top-[4.25rem] xl:col-start-2 xl:row-start-1 xl:max-h-[calc(100vh-5.25rem)] xl:self-start xl:overflow-y-auto">{aside}</div>}
+      {/* Phone / narrow-screen commit sheet (11-07, Devin): tap the cash figure or the handle, or swipe up, and it opens
+          into the whole commit panel (the same parts the desktop rail shows); swipe down, tap the handle or the
+          backdrop, or press Escape to fold it back. Folded: the differs block (first 2 rows, then "+N more"), the
+          cash and the Submit button, always reachable while tuning desks. */}
+      {sheetOpen && <div aria-hidden className="fixed inset-0 z-[29] bg-black/40 lg:hidden" onClick={() => setSheetOpen(false)} />}
+      <div data-dw="commit-sheet" data-open={sheetOpen ? "1" : undefined} className="fixed inset-x-0 bottom-0 z-30 border-t border-line2 bg-panel/95 backdrop-blur lg:hidden" style={{ paddingBottom: "max(0.6rem, env(safe-area-inset-bottom))", borderRadius: "20px 20px 0 0", boxShadow: "0 -10px 30px rgba(0,0,0,.25)" }}
+        onTouchStart={(e) => { swipeY.current = e.touches[0]?.clientY ?? null; }}
+        onTouchEnd={(e) => { const y0 = swipeY.current; swipeY.current = null; if (y0 == null) return; const dy = (e.changedTouches[0]?.clientY ?? y0) - y0; if (dy < -36 && !sheetOpen) setSheetOpen(true); else if (dy > 36 && sheetOpen && !(e.target as HTMLElement).closest?.("[data-dw=sheet-body]")) setSheetOpen(false); }}>
+        <button type="button" aria-expanded={sheetOpen} aria-controls="commit-sheet-body" onClick={() => setSheetOpen((v) => !v)} className="block w-full pb-1 pt-2" title={sheetOpen ? "Fold the commit panel" : "Open the commit panel"}>
+          <span className="mx-auto block h-1 w-10 rounded-full" style={{ background: "var(--color-line2)" }} />
+          <span className="sr-only">{sheetOpen ? "Fold the commit panel" : "Open the commit panel"}</span>
+        </button>
+        {sheetOpen ? (
+          <div id="commit-sheet-body" data-dw="sheet-body" className="max-h-[66vh] overflow-y-auto overscroll-contain">
+            {railHead}
+            {railBody}
+            {((guard && guard.cuts.length > 0) || overcommit || (unsent && diffs.rows.length > 0)) && <div className="px-4 pt-2">{railWarnings}</div>}
+            {railCalls}
+          </div>
+        ) : team && diffs.rows.length > 0 && (
           <div className="grid gap-1 px-4 py-2.5" style={{ background: "color-mix(in srgb, var(--color-brick) 12%, var(--color-panel))", borderTop: "3px solid var(--color-brick)", borderRadius: "20px 20px 0 0" }}>
             <div className="flex items-center gap-2">
               <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full font-mono text-[0.78rem] font-bold text-paper" style={{ background: "var(--color-brick)" }}>{diffs.rows.length}</span>
@@ -1509,11 +1621,11 @@ export function DecisionForm({
         )}
         {unsent && <div className="px-4 pt-2 text-[0.72rem] leading-snug text-gold">Changed since you submitted — update to send it.</div>}
         <div className="flex items-center gap-3 px-4 pt-2.5">
-          <div className="shrink-0">
-            <div className="font-mono text-[0.5rem] uppercase tracking-[0.1em] text-inksoft">{team ? "Team locks" : "Cash · pre-sales"}</div>
+          <button type="button" aria-expanded={sheetOpen} aria-controls="commit-sheet-body" onClick={() => setSheetOpen((v) => !v)} className="shrink-0 rounded-lg text-left" data-dw="sheet-cash">
+            <div className="flex items-center gap-1 font-mono text-[0.5rem] uppercase tracking-[0.1em] text-inksoft">{team ? "Team locks" : "Cash · pre-sales"}<span aria-hidden className="text-[0.7rem] leading-none text-copper">{sheetOpen ? "▾" : "▴"}</span></div>
             <div className="tnum text-lg font-bold leading-none" style={{ color: overcommit ? "var(--color-brick)" : "var(--color-ink)" }}>{fmt.money(lockedCash)}</div>
-          </div>
-          <button onClick={() => onPlay(mergeDecision(view, d, cityActions, poaches))} disabled={busy} className="tt-btn tt-btn--go ml-auto min-w-0 whitespace-normal text-center leading-tight">
+          </button>
+          <button onClick={() => { setSheetOpen(false); onPlay(mergeDecision(view, d, cityActions, poaches)); }} disabled={busy} className="tt-btn tt-btn--go ml-auto min-w-0 whitespace-normal text-center leading-tight">
             {busy ? "Working…" : submitText(true)}
           </button>
         </div>
@@ -1538,8 +1650,13 @@ function diffHeadline({ rows }: { rows: PlanDiff[] }): string {
 function CommitRow({ label, value, tone }: { label: string; value: string; tone?: "hop" | "brick" }) {
   return (
     <div className="flex items-baseline justify-between text-[0.78rem]">
-      <span style={{ color: "#bda079" }}>{label}</span>
-      <span className="tnum font-semibold" style={{ color: tone === "hop" ? "#9fce63" : tone === "brick" ? "#e59178" : "#f2e4c4" }}>{value}</span>
+      <span style={{ color: "var(--color-inksoft)" }}>{label}</span>
+      <span className="tnum font-semibold" style={{ color: tone === "hop" ? "var(--color-hop)" : tone === "brick" ? "var(--color-brick)" : "var(--color-ink)" }}>{value}</span>
     </div>
   );
+}
+
+/** A compact label → value line (11-07 readability pass). */
+function KV({ k, children }: { k: string; children: ReactNode }) {
+  return <div className="grid grid-cols-[6.6rem_minmax(0,1fr)] gap-x-2"><span className="text-faint">{k}</span><span className="min-w-0 text-ink">{children}</span></div>;
 }

@@ -12,8 +12,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
-const SHEET_STYLE = { borderColor: "var(--color-copperdeep)", background: "var(--color-panel)", boxShadow: "0 -14px 30px rgba(40,25,8,.42)", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" };
-const POP_STYLE = { borderColor: "var(--color-copperdeep)", background: "var(--color-panel)", boxShadow: "0 14px 30px rgba(40,25,8,.42)" };
+// Control Room Glass: the solid panel under the sheen + prism (a popover never lets the page read through).
+const SHEET_STYLE = { borderColor: "var(--gb)", background: "var(--prism) top center / 100% 1px no-repeat, var(--sheen), var(--color-panel)", boxShadow: "0 -18px 44px rgba(0,0,0,.38)", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" };
+const POP_STYLE = { borderColor: "var(--gb)", background: "var(--prism) top center / 100% 1px no-repeat, var(--sheen), var(--color-panel)", boxShadow: "var(--gs)" };
 
 export function AnchoredPopover({ stage, at, width, label, onClose, children }: {
   stage: RefObject<HTMLElement | null>; at: { l: number; t: number }; width: number; label: string; onClose: () => void; children: ReactNode;

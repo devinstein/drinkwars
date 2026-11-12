@@ -6,8 +6,8 @@
  */
 import { GameOrchestrator, InMemoryAdapter, randomBreweryNames, renameFirms, getSeatForecasts, submitForecasts } from "drinkwars-server";
 import type { ForecastCall, SeatForecasts } from "drinkwars-server"; // DW-077 solo calls
-import { resolveConfig, decideAdaptive, ADAPTIVE_LEANS, inventoryEnabled, roleBriefings, summarizeAgreementsFor, summarizeLobbying, generateHiringMarket, projectMarkets, projectMarketSizing, projectFirms, projectShocks, projectHistory, segmentDemandTotals, compareStanding } from "drinkwars-engine";
-import type { RoleBriefing, AllianceSummary, LobbySummary, Candidate, MarketSizingView } from "drinkwars-engine";
+import { resolveConfig, decideAdaptive, ADAPTIVE_LEANS, inventoryEnabled, roleBriefings, summarizeAgreementsFor, summarizeLobbying, generateHiringMarket, projectMarkets, projectMarketSizing, projectFirms, projectShocks, projectHistory, segmentDemandTotals, compareStanding, projectResearch, visibleEvents, pactParties } from "drinkwars-engine";
+import type { RoleBriefing, AllianceSummary, LobbySummary, Candidate, MarketSizingView, ResearchView } from "drinkwars-engine";
 import type { BalanceSheet, CashFlow, Config, ConfigOverride, FirmDecision, FirmId, FirmRoundResult, FirmState, Lean, ModulesConfig, PnL, RoundResult, SegmentId, WorldState } from "drinkwars-engine";
 import { rankDistrictsForType } from "../labels.js";
 import type { TeamPlan } from "./multiplayer.js";
@@ -87,6 +87,7 @@ export interface FirmSnapshot {
   isYou: boolean;
   score: number;
   share: number;
+  soldShare?: number; // 11-07: share of all drinks sold last round (public)
   Q: number;
   B: number;
   cap: number;
@@ -107,6 +108,9 @@ export interface FirmSnapshot {
   verticalAssets: string[]; // MOD-B06 owned assets
   employees: { id: string; name: string; role: string; skill: number; satisfaction: number; salary: number; tenure_rounds?: number; loyalty?: number }[]; // MOD-B12 roster (for scouting/poaching); DW-075 tenure/loyalty on the OWN firm only
   facilities: { type: string; location_id?: string; market_id?: string; active: boolean }[]; // MOD-B11 sited facilities (for competitor pins)
+  /** 11-07 research reports: a rival's private figures are estimates; cash, debt and net income hidden; `health` is the analyst's band. */
+  estimated?: boolean;
+  health?: "strong" | "steady" | "stretched" | "distressed";
 }
 
 /** A shock the player is allowed to know about: either active right now, or an
@@ -167,6 +171,7 @@ export interface MarketView {
   yourSites: MarketSite[];
   rivalSites: MarketSite[];
   lots: MarketLot[]; // Phase 2 buildable parcels (coords, availability, occupancy)
+  sellers?: string[]; // 11-09: rival firms on this city's shelves last round (public: who sells, not how much)
 }
 
 export interface GameView {
@@ -186,6 +191,10 @@ export interface GameView {
   history: { own: OwnTrend; field: FieldTrend }[];
   firms: FirmSnapshot[]; // all firms' latest snapshot (incl. you) — for benchmarks/strategy map
   infoActive: boolean; // did you buy market research for the most recent decision?
+  /** 11-07: rivals' shelf prices are public (config information.public_prices) — shown with or without research. */
+  publicPrices: boolean;
+  /** 11-07: research is the three-report bundle (config information.reports); false = a game that reveals exact figures. */
+  researchReports: boolean;
   names: Record<string, string>; // firm_id → display name (events/briefings arrive pre-renamed)
   styles?: Record<string, { color: string | null; emblem: string | null }>; // DW-051 house colour/mark per firm (multiplayer)
   inventoryEnabled: boolean; // production/inventory mode on for this game?
@@ -198,6 +207,10 @@ export interface GameView {
   fx: Record<string, number>; // MOD-B02 export exchange rates (empty when off)
   markets: MarketView[]; // MOD-B01 per-market ("city") view for the City View (empty when geography off)
   sizing?: MarketSizingView | null; // DW-084 TAM / SAM / SOM for the last resolved round (null before round 1)
+  /** 11-07: the three research reports (retail scan, consumer survey with an NPS-style score, analyst brief) on
+   *  the last resolved round. Class games: only when the team's plan buys research. Solo: always computed; the
+   *  UI shows it once research is bought. Null before round 1 or in a game made before the reports. */
+  research?: ResearchView | null;
   agreements: AllianceSummary[]; // MOD-A05/A06 active pacts you're party to (empty when off)
   lobbyInitiatives: LobbySummary[]; // MOD-A09 regulation initiatives + progress (empty when off)
   shocks: ShockSignal[]; // active + foreseeable upcoming shocks, for the map/header
@@ -287,6 +300,7 @@ export class SinglePlayerGame {
     // and multiplayer match. Solo reveals all firm data (single human; the UI blurs cosmetically).
     const history = projectHistory(results, this.humanFirmId);
     const firms: FirmSnapshot[] = projectFirms(world, this.config, this.humanFirmId, last?.result.firm_results ?? [], true, (id) => this.nameOf(id));
+    const research = projectResearch(results, world, this.config, this.humanFirmId, (id) => this.nameOf(id));
 
     // Display names everywhere: engine event/briefing strings carry raw firm
     // ids; substitute brewery names before anything reaches a component.
@@ -320,10 +334,14 @@ export class SinglePlayerGame {
       ownResult,
       result: last?.result ?? null,
       standings,
-      events: (last?.result.events ?? []).map((e) => renameFirms(e, names)),
+      // 11-09: solo read every engine event unfiltered — a rival's "orders cut" reached the Dispatch. Same rule as the server.
+      events: visibleEvents(last?.result.events ?? [], this.humanFirmId, pactParties(world.agreements)).map((e) => renameFirms(e, names)),
       history,
       firms,
       infoActive: this.lastInfoBought,
+      research,
+      publicPrices: !!this.config.information?.public_prices,
+      researchReports: !!this.config.information?.reports,
       names,
       inventoryEnabled: inventoryEnabled(this.config),
       modules: this.config.modules,

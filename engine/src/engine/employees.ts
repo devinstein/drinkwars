@@ -170,8 +170,10 @@ export function resolveEmployees(world: WorldState, decisions: Map<FirmId, FirmD
         // offer" — say so, and teach the lever (the signing bonus) either way.
         const winBid = Math.max(0, ...(bidsByCand.get(cid) ?? []).filter((x) => x.firmId === winner).map((x) => x.bid));
         out.events.push(winBid > myBid
-          ? `OUTBID: ${cand.name} signed with a rival — their signing bonus $${fmNum(winBid)} beat yours ($${fmNum(myBid)})`
-          : `CANDIDATE LOST: ${cand.name} took a rival's otherwise-equal offer on a tie-break — a signing bonus would have won them outright`);
+          // 11-09: name the firm that lost the contest — the notice is its own business (visibility.ts), and
+          // without its id no firm could be shown it (it used to reach every firm, "beat yours" and all).
+          ? `OUTBID: ${f.id} lost ${cand.name} to a rival — their signing bonus $${fmNum(winBid)} beat yours ($${fmNum(myBid)})`
+          : `CANDIDATE LOST: ${cand.name} took a rival's otherwise-equal offer over ${f.id} on a tie-break — a signing bonus would have won them outright`);
         continue;
       }
       signed.add(cid);

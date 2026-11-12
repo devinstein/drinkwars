@@ -20,11 +20,11 @@ test("DW-083: credit, repayment, guard, overdraft and purchase lines parse with 
     assert.ok(e.mine, `${e.title} is the player's own`);
     assert.doesNotMatch(String(e.body), /^(CREDIT|REPAYMENT|BLOCKED|OVERDRAFT|PURCHASE)/, "no raw prefix leaks");
   }
-  assert.match(String(ev[0].body), /^The bank lent you nothing of the \$1,055,000 asked for: losses have used up your equity/);
+  assert.match(String(ev[0].body), /^The bank lent you nothing of the \$1,055,000 asked for\. The bank's reason: losses have used up your equity/);
   assert.match(String(ev[1].body), /^The bank lent you only \$1,058,148 of the \$1,740,000 asked for/);
   assert.match(String(ev[5].body), /^The bank covered your \$9,839 shortfall/);
   assert.match(String(ev[2].body), /^You repaid none of the \$20,000 planned/);
-  assert.match(String(ev[4].body), /^You couldn't pay for the whole plan: \$961,000 of spending against \$231,637 of cash and financing \(the bank lends \$0 of the \$1,055,000 asked\)\. Cut: tank order \$830,000 → \$100,637\.$/);
+  assert.match(String(ev[4].body), /^You couldn't pay for the whole plan\. It called for \$961,000 of spending, but cash and financing came to \$231,637 \(the bank lends \$0 of the \$1,055,000 asked\)\. Cut to fit: tank order \$830,000 → \$100,637\.$/);
   assert.match(String(ev[6].body), /^You were \$194,248 short/);
   assert.match(String(ev[7].body), /^You couldn't fund the hop & grain supplier \(\$112,000\)/);
 });

@@ -429,6 +429,8 @@ export const defaultConfig: Config = {
 
   information: {
     cost: 12_000, // market research: a syndicated consumer study (§15.7)
+    public_prices: true, // 11-07: shelf prices are public; research buys the rest (types.ts)
+    reports: { survey_sd: 0.1, analyst_sd: 0.08 }, // 11-07: research = three reports at real-world precision (engine/research.ts)
   },
 
   // Expansion modules (04_expansion_module_spec). All off by default ⇒ identical

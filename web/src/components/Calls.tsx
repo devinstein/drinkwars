@@ -106,7 +106,7 @@ export function useCallsDesk(client: CallsClient | null | undefined, round: numb
 }
 
 // Fixed light-on-dark tones of the commit rail (see DecisionForm's CommitRow).
-const RAIL = { ink: "#f4e6c8", soft: "#bda079", faint: "#a98a5f", line: "rgba(255,240,205,.22)", fill: "rgba(0,0,0,.18)", selBg: "#f4e6c8", selInk: "#1b130c", err: "#e59178" };
+const RAIL = { ink: "var(--color-ink)", soft: "var(--color-inksoft)", faint: "var(--color-faint)", line: "var(--color-line2)", fill: "var(--well)", selBg: "var(--color-ink)", selInk: "var(--color-paper)", err: "var(--color-brick)" };
 
 /** The three tickets. Mount through DecisionForm's `callsSlot` (above Submit). */
 export function CallsTickets({ desk, round, open }: { desk: CallsDesk; round: number; open: boolean }) {

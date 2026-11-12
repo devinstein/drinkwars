@@ -18,7 +18,7 @@ import { CapacityVsDemand, CostOfCapitalCockpit, ScorecardRadar } from "./Dashbo
 function cockpitChart(desk: CockpitDesk, view: import("../game/controller.js").GameView) {
   const r = view.ownResult;
   if (!r) return null;
-  if (desk === "operations") return { label: "Capacity vs demand", el: <CapacityVsDemand result={r} cap={view.own.cap} /> };
+  if (desk === "operations") return { label: "Capacity vs demand", el: <CapacityVsDemand result={r} sizing={view.sizing} inventoryOn={view.inventoryEnabled} /> };
   if (desk === "finance") return { label: "Cost-of-capital cockpit", el: <CostOfCapitalCockpit coc={r.cost_of_capital} finance={view.finance} /> };
   if (desk === "all" || desk === "strategy") return { label: "Balanced scorecard", el: <ScorecardRadar you={r.scorecard_norm} /> };
   return null;
@@ -61,7 +61,7 @@ export function DeskCockpit({ desk, view, seatRole, rationale, onRationale }: {
       <div className="flex items-start gap-3 border-b border-line px-4 py-3" style={seatC ? undefined : { borderLeft: `3px solid ${p.accent}` }}>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="font-mono text-[0.72rem] font-bold uppercase tracking-[0.14em]" style={{ color: accent }}>{seatC ? seatDeskLong(seatRole) : `${p.short} desk`}</span>
+            <span className="font-mono text-[0.72rem] font-bold uppercase tracking-[0.14em]" style={{ color: `color-mix(in srgb, ${accent} 55%, var(--color-ink))` }}>{seatC ? seatDeskLong(seatRole) : `${p.short} desk`}</span>
             {seatC && <span className="text-[0.95rem] leading-snug text-inksoft">{p.charter}</span>}
             {holdsThis && <span className="rounded-full bg-ink px-2 py-0.5 font-mono text-[0.52rem] font-bold uppercase tracking-wide text-paper">Your seat · {yoursByRole}</span>}
           </div>
@@ -83,7 +83,14 @@ export function DeskCockpit({ desk, view, seatRole, rationale, onRationale }: {
                   <span className="font-mono text-[0.6rem] font-bold uppercase tracking-wide text-inksoft">{s.label}</span>
                 </span>
                 <span className="text-[0.82rem] font-semibold tabular-nums" style={{ color: s.tone === "neutral" ? "var(--color-ink)" : TONE_COLOR[s.tone] }}>{s.value}</span>
-                <span className="col-start-2 text-[0.74rem] leading-snug text-inksoft">{s.read}</span>
+                {s.rows && s.rows.length > 0 && (
+                  <div className="col-start-2 grid max-w-[26rem] gap-0.5" data-dw="signal-rows">
+                    {s.rows.map((r) => (
+                      <div key={r.k} className="flex items-baseline justify-between gap-3 text-[0.74rem]"><span className="text-inksoft">{r.k}</span><b className="tnum text-right" style={{ color: r.tone ? TONE_COLOR[r.tone] : "var(--color-ink)" }}>{r.v}</b></div>
+                    ))}
+                  </div>
+                )}
+                <span className="col-start-2 text-[0.72rem] leading-snug text-inksoft">{s.read}</span>
               </div>
             ))}
           </div>
@@ -133,6 +140,7 @@ export function DeskCockpit({ desk, view, seatRole, rationale, onRationale }: {
           </InfoDot>
         </label>
         <textarea
+          aria-label="Your recommendation this round"
           value={rationale}
           onChange={(e) => onRationale(e.target.value)}
           rows={2}

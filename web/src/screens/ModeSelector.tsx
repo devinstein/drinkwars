@@ -172,7 +172,7 @@ export function ModeSelector({ onChange }: { onChange: (modules: ModuleSelection
         })}
       </div>
       <p className="text-[0.66rem] leading-snug text-inksoft">
-        Planned modules are scaffolded and will light up as their engine logic lands. Live modules ship off-balance by design — enable per game and tune with play-test data.
+        Modules are fixed once the game is created — to try a different mix, create a new game.
       </p>
     </div>
   );

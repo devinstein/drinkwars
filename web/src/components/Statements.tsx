@@ -141,7 +141,7 @@ const CF: Line[] = [
   { key: "cfClose", label: "Closing cash", get: (q) => q.bs.cash, kind: "total", note: "Ties to Cash on the balance sheet." },
   // DW-076: M&A settles and exits / rebuilds happen AFTER the books close, so in those quarters the
   // cash the firm opens the next quarter with is not this quarter's closing cash. The bridge, itemized.
-  { key: "cfPost", label: "After the books closed", get: postCloseSum, hideIfZero: true, note: "Cash that moved after this quarter's statements were struck: buying a rival (or being bought), or a fresh start after a rebuild. It is not in the statement above — which is why next quarter opens with a different cash balance than this one closes with.",
+  { key: "cfPost", label: "After the books closed", get: postCloseSum, hideIfZero: true, note: "Cash that moved after this quarter's statements were drawn up: buying a rival (or being bought), or a fresh start after a rebuild. It is not in the statement above, which is why next quarter opens with a different cash balance than this one closes with.",
     items: cfItems("post_close", CF_LINE_LABEL.post_close, {
       acquired_cash: "The acquired firm's closing cash, which came across with it.",
       rebuild_fresh_capital: "A rebuilt brewery starts over on fresh books: the balance it closed with is surrendered and the founding capital is put up again.",
@@ -345,8 +345,8 @@ export function StatementsAndRatios({ view }: { view: GameView }) {
       {/* controls */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="text-[0.78rem] text-inksoft">
-          Each round is one fiscal quarter. Costs print in parentheses, so a <i>positive</i> change
-          on a cost line means that cost came down — the Δ column is always coloured by whether
+          Each round is one quarter. Costs print in parentheses, so a <i>positive</i> change
+          on a cost line means that cost came down. The change column is always coloured by whether
           the news is good, not by its sign.
           {partial && <span className="text-brick"> {missingLabel}</span>}
         </div>

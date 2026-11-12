@@ -284,7 +284,7 @@ export function Instructor({ onExit }: { onExit: () => void }) {
     return (
       <div className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6 py-16">
         {showTune && (
-          <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "radial-gradient(120% 90% at 12% -10%, #fbf2df 0%, #ece0c4 55%, #e7d4af 100%)" }}>
+          <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "var(--backdrop)" }}>
             <div className="flex flex-none items-center gap-3 border-b border-line2 bg-panel px-5 py-3">
               <div><div className="font-mono text-[0.55rem] uppercase tracking-[0.16em] text-copperdeep">Instructor · balance &amp; tuning</div><div className="display text-xl font-extrabold uppercase text-ink">The Tuning Board</div></div>
               <div className="flex-1" />
@@ -318,7 +318,7 @@ export function Instructor({ onExit }: { onExit: () => void }) {
             </label>
             <label className="flex items-start gap-2">
               <input type="checkbox" checked={calls} onChange={(e) => setCalls(e.target.checked)} className="mt-1" />
-              <span className="text-sm text-inksoft"><b className="text-ink">Calls</b> · three optional tickets per chair before lock (where we finish · my gross margin · the top rival's price), settled NAILED / CLOSE / MISSED on the round-resolved page with a running record. Engagement only — never touches the season score. <span className="text-[0.7rem]">Needs migration 0009 on the live server.</span></span>
+              <span className="text-sm text-inksoft"><b className="text-ink">Calls</b> · optional predictions. Before each round locks, every player can make up to three calls: where their firm will finish, their gross margin, and the top rival's price. The results page grades each call Nailed, Close or Missed and keeps a running record. For engagement only — calls never count toward the season score.</span>
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="grid gap-1">
@@ -470,7 +470,7 @@ export function Instructor({ onExit }: { onExit: () => void }) {
 
       {/* DW-071: a render throw in the console body stays in the body — header, tabs and Leave
           keep working, and Retry re-draws in place (it used to take the whole app down). */}
-      <ErrorBoundary scope="panel" resetKey={view} label={view === "controls" ? "Controls" : "Dashboard"} note="The game on the server is untouched — Retry re-draws this panel, or switch tabs.">
+      <ErrorBoundary scope="panel" resetKey={view} label={view === "controls" ? "Controls" : "Dashboard"} note="Your game is unaffected — Retry redraws this panel, or switch tabs.">
       {view === "controls" ? (
         <>
           <Card className="text-center">
@@ -525,7 +525,7 @@ export function Instructor({ onExit }: { onExit: () => void }) {
                   <div className="flex items-center justify-between">
                     <span className={t.joined ? "font-semibold" : "text-inksoft"}>{t.joined ? t.name : "— open slot —"}</span>
                     <span className="font-mono text-[0.7rem] text-inksoft">
-                      {!t.joined ? "open · NPC at lock" : status?.nonSubmitters?.includes(t.teamId) ? "waiting" : "submitted"}
+                      {!t.joined ? "open · a bot plays it at lock" : status?.nonSubmitters?.includes(t.teamId) ? "waiting" : "submitted"}
                     </span>
                   </div>
                   {/* DW-048: every chair with its own submit state + remove/move — a wrong-firm join
@@ -594,7 +594,7 @@ export function Instructor({ onExit }: { onExit: () => void }) {
               if (window.confirm(q)) act(() => client!.lock(game.gameId));
             }} disabled={busy || lcRaw !== "open"}>Lock round</Button>
             {lcRaw === "locked" && <Button variant="ghost" onClick={() => act(() => client!.unlock(game.gameId))} disabled={busy}>Unlock</Button>}
-            <Button onClick={() => { if (window.confirm(`Resolve round ${(status?.round ?? 0) + 1}? This runs the engine and publishes results to every student — it cannot be undone.`)) act(() => client!.resolve(game.gameId)); }} disabled={busy || lcRaw !== "locked"}>Resolve round</Button>
+            <Button onClick={() => { if (window.confirm(`Resolve round ${(status?.round ?? 0) + 1}? This plays out the round and publishes the results to every student. It cannot be undone.`)) act(() => client!.resolve(game.gameId)); }} disabled={busy || lcRaw !== "locked"}>Resolve round</Button>
             {lcRaw === "resolving" && <Button variant="ghost" onClick={() => act(() => client!.resolve(game.gameId, { force: true }))} disabled={busy}>Retry resolve</Button>}
             {lcRaw === "published" && <Button variant="ghost" onClick={() => act(() => client!.advance(game.gameId))} disabled={busy}>Open next round</Button>}
             {lcRaw === "complete" && <span className="text-sm text-inksoft">Season complete — export the data or start a new game.</span>}
@@ -605,8 +605,8 @@ export function Instructor({ onExit }: { onExit: () => void }) {
             )}
           </div>
           <div className="mt-2 text-[0.72rem] text-inksoft">
-            Lock closes submissions (open slots play as adaptive NPCs; a claimed team that missed the deadline carries last quarter's standing plan) — Unlock re-opens it; Resolve runs the engine and opens the next round.
-            {lcRaw === "resolving" && <span className="text-brick"> If this stays on “Resolving…” for more than a few seconds the call was interrupted — Retry resolve re-runs the same round safely.</span>}
+            Lock closes submissions (open slots are played by bots that adapt to the market; a claimed team that missed the deadline keeps last quarter's plan) — Unlock re-opens them; Resolve plays out the round and opens the next one.
+            {lcRaw === "resolving" && <span className="text-brick"> If this stays on “Resolving…” for more than a few seconds the connection dropped — Retry resolve re-runs the same round safely.</span>}
           </div>
         </>
       ) : (

@@ -27,7 +27,7 @@ export function SeatPlate({ role, name, seats }: { role: string; name: string; s
 /** One chip per C-suite chair: "CEO ✓" submitted · "CEO" seated · "CHRO · empty"; yours at 35%. */
 export function SeatChips({ role, seats }: { role: string; seats: TeamSeat[] }) {
   return (
-    <div className="hidden flex-wrap items-center gap-1.5 md:flex" data-seat-chips>
+    <div className="hidden flex-wrap items-center gap-1.5 2xl:flex" data-seat-chips>{/* 11-07 (Devin): only where the header has room — the Round Table shows who's in */}
       {SEAT_ROLES.map((r) => {
         const s = seats.find((x) => x.role === r);
         const label = `${r.toUpperCase()}${s ? (s.submitted ? " ✓" : "") : " · empty"}`;

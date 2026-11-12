@@ -856,7 +856,15 @@ export interface Config {
   shocks: ShockConfig;
   coopetition: CoopConfig;
   scoring: ScoringConfig;
-  information: { cost: number }; // §15.7 market-research action: costed, no state effect
+  /** §15.7 market-research action: costed, no state effect. `public_prices` (11-07, Devin): last round's shelf
+   *  prices by category are public to every team, research or not — anyone can walk into a store. Research
+   *  still buys the rest (quality, brand, stakeholder trust, costs, capacity, category shares, financials,
+   *  people). New-game default; absent ⇒ prices stay behind research (stored games, as first built). */
+  /** `reports` (11-07, Devin): research is three reports in one bundle — a retail scan, a consumer survey with an
+   *  NPS-style score, an analyst brief — at real-world precision: rivals' quality and brand read as survey ranges,
+   *  cost and capacity as analyst ranges, finances as a health band (engine/research.ts). `survey_sd` and
+   *  `analyst_sd` are the relative errors. New-game default; absent ⇒ research reveals exact figures. */
+  information: { cost: number; public_prices?: boolean; reports?: { survey_sd: number; analyst_sd: number } };
   modules?: ModulesConfig; // expansion modules; absent ⇒ all-off (pre-modules / legacy games)
   /** Classroom-layer switches the ENGINE never reads (they ride in the game's config so both
    *  transports and the client see the same flag). `forecasts` = the calls channel (DW-074):

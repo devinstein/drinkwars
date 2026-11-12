@@ -102,7 +102,7 @@ try {
   await apiSubmit(me.coo, { invest_cap: 80000, invest_Q: 15000 }, ["presence", "invest_cap", "invest_process", "invest_Q"]);
   await apiSubmit(me.cmo, {}, ["price", "buy_info", "invest_B"]);
   await type(cfo, /^Draw debt \(cash in\)$/, 50000); await type(cfo, /^Pay dividend \(cash out\)$/, 10000); await submit(cfo);
-  await type(ceo, /^Invest in tank capacity/, 200000); await type(ceo, /^Draw debt \(cash in\)$/, 120000); await type(ceo, /^Raise equity \(cash in\)$/, 60000);
+  await type(ceo, /^(Tank order|Invest in tank capacity)/, 200000); await type(ceo, /^Draw debt \(cash in\)$/, 120000); await type(ceo, /^Raise equity \(cash in\)$/, 60000);
   await sleep(6000); // the CEO's (front) tab polls in the teammates' submits
   await waitText(ceo, /What locks at round end/).catch(() => console.log("warn  no commit panel on the CEO page")); // DW-077
   await shoot(ceo, "decide-ceo-with-open-conflicts");
@@ -123,12 +123,14 @@ try {
 
   // ── round 3: the shock is active ──
   await ceo.bringToFront();
-  await ceo.waitForFunction(() => /Round\s*3\s*\//.test(document.body.innerText), { timeout: 30000 });
+  await ceo.waitForFunction(() => /Round\s*3\s*(\/|of)/.test(document.body.innerText), { timeout: 30000 });
   await waitText(ceo, /Income statement/); await sleep(800);
   await ceo.evaluate(() => { for (const b of [...document.querySelectorAll("button[aria-expanded='false']")]) b.click(); }); await sleep(500);
   await shoot(ceo, "review-statements-accordions-open");
   await click(ceo, "The Dispatch");
   await shoot(ceo, "review-dispatch-after-shock-round");
+  // 11-09: the capacity-vs-demand chart and the research pages, for design looks at phone width and in dark mode
+  for (const t of ["Operations & Demand", "Field & Intel"]) { await click(ceo, t); await sleep(900); await shoot(ceo, "review-" + t.toLowerCase().replace(/[^a-z]+/g, "-")); }
   await click(ceo, "Decide"); await waitText(ceo, /What locks at round end|Commit the round/);
   await shoot(ceo, "decide-ceo-shock-active");
   await shoot(ceo, "header-shock-active", HEADER);

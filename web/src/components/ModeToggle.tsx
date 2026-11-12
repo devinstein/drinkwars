@@ -11,6 +11,9 @@ const subscribe = (cb: () => void) => {
   return () => mo.disconnect();
 };
 
+/** The live mode as React state — canvas painters (the City map) redraw on a theme switch. */
+export function useMode(): Mode { return useSyncExternalStore(subscribe, read, () => "foolscap"); }
+
 /** Light (Foolscap) ↔ dark (Sectional Night) — the design system's two co-equal modes.
  *  Floating (bottom-right) everywhere except a game screen, where Play renders the `inline`
  *  one in its header: on a phone the floating button sat on top of the commit sheet and the

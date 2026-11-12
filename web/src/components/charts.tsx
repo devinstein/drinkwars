@@ -185,7 +185,7 @@ const moneyK = (raw: number): string => {
 type TxtProps = { x: number; y: number; children: ReactNode; fill?: string; size?: number; weight?: number; anchor?: "start" | "middle" | "end"; italic?: boolean; tab?: boolean };
 function Txt({ x, y, children, fill = "var(--color-ink)", size = 10, weight = 500, anchor = "start", italic = false, tab = false }: TxtProps) {
   return (
-    <text x={x} y={y} fill={fill} fontSize={size} fontWeight={weight} textAnchor={anchor} fontStyle={italic ? "italic" : undefined} fontFamily={tab ? "var(--font-body)" : "'IBM Plex Sans', sans-serif"} style={tab ? { fontVariantNumeric: "tabular-nums lining-nums" } : undefined}>{children}</text>
+    <text x={x} y={y} fill={fill} fontSize={size} fontWeight={weight} textAnchor={anchor} fontStyle={italic ? "italic" : undefined} fontFamily={tab ? "var(--font-body)" : "var(--font-mono)"} style={tab ? { fontVariantNumeric: "tabular-nums lining-nums" } : undefined}>{children}</text>
   );
 }
 

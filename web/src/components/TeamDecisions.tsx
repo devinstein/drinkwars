@@ -123,7 +123,7 @@ function TeamCard({ t, color, name, whoWins, showAll }: { t: InstructorTeamDecis
         {nUnused > 0 && <span className="rounded-[2px] border border-brick bg-brick/10 px-2 py-0.5 text-sm font-semibold text-brick">{nUnused} entr{nUnused === 1 ? "y" : "ies"} entered but not used</span>}
       </div>
       <div className="mb-3 flex flex-wrap gap-2">
-        {t.seats.length === 0 && <span className="text-base text-inksoft">No one seated — an NPC (when bot-fill is on) plays this firm at lock.</span>}
+        {t.seats.length === 0 && <span className="text-base text-inksoft">No one seated — a bot plays this firm at lock.</span>}
         {t.seats.map((s) => (
           <span key={s.userId} className={`rounded-[2px] border px-2 py-1 text-sm ${s.submitted ? "border-hop text-ink" : "border-line2 text-inksoft"}`}>
             <b className="font-mono">{roleTag(s)}</b> {s.name} · {s.submitted ? `submitted ${ago(s.updatedAt)}` : "not submitted"}
@@ -216,7 +216,7 @@ export function TeamDecisionsPanel({ client, gameId, roundKey, colorByFirm, name
         <Eyebrow>Team decisions · round {v ? v.round + 1 : "…"}{v ? ` · ${v.lifecycle}` : ""}</Eyebrow>
         <div className="mb-2 text-base text-inksoft">
           What each chair has submitted, and what will actually run at lock. <b>✎</b> = the chair changed that lever this round. <span className="font-semibold text-brick">✗ red</span> = a chair entered a value that is NOT what will run — go and tell that team.
-          {" "}“From” is the chair whose value runs, by the same rule the server merges with: a chair who changed a lever on their own desk wins; one who left it at last round's value yields to the CEO.
+          {" "}“From” is the chair whose value runs, by the game's rule: a chair who changed a lever on their own desk wins; one who left it at last round's value yields to the CEO.
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Button variant="ghost" onClick={() => load(true)} disabled={busy}>{busy ? "Refreshing…" : "Refresh"}</Button>

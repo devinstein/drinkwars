@@ -8,7 +8,7 @@
 // Game logic comes from ./drinkwars-core.js (esbuild bundle of the orchestrator
 // + Supabase adapter + engine). Rebuild it with `npm run build:edge` in server/.
 import { createClient } from "@supabase/supabase-js";
-import { GameOrchestrator, SupabaseAdapter, buildInstructorDashboard, dashboardToCsv, randomBreweryNames, renameFirms, visibleEvents, resolveConfig, roleBriefings, summarizeAgreementsFor, summarizeLobbying, withRequestCache, deepMerge, generateHiringMarket, projectMarkets, projectMarketSizing, projectFirms, projectShocks, projectHistory, getSeatForecasts, submitForecasts, getGameForecasts } from "./drinkwars-core.js";
+import { GameOrchestrator, SupabaseAdapter, buildInstructorDashboard, dashboardToCsv, randomBreweryNames, renameFirms, visibleEvents, pactParties, resolveConfig, roleBriefings, summarizeAgreementsFor, summarizeLobbying, withRequestCache, deepMerge, generateHiringMarket, projectMarkets, projectMarketSizing, projectFirms, projectResearch, projectShocks, projectHistory, getSeatForecasts, submitForecasts, getGameForecasts } from "./drinkwars-core.js";
 
 const url = Deno.env.get("SUPABASE_URL")!;
 const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -130,6 +130,7 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
   let markets: any[] = []; // MOD-B01 per-team city view (same projection as single-player)
   let sizing: any = null; // DW-084 TAM / SAM / SOM
   let firms: any[] = []; // public snapshots; rivals' private fields (incl. roster) redacted unless this team bought research
+  let research: any = null; // 11-07: the three research reports (twin of transport.ts) — only for a team whose plan buys them
   let shocks: any[] = [];
   let hiringMarket: any[] = []; // MOD-B12 candidate pool (shared/public — same for every firm)
   const seats = own && game?.firm_mode === "team" ? await orch.getTeamSeats(gameId, teamId) : []; // team firms: C-suite seats + submit status
@@ -139,10 +140,12 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
   const teamPlan = own && game?.firm_mode === "team" && userId ? await orch.getTeamPlan(gameId, teamId, userId, standing) : undefined; // DW-080: composed live from the slices
   const history = own ? projectHistory(allResults, own.id) : []; // own trend + public field aggregate
   const draft = own && game?.firm_mode !== "team" && decision?.submitted ? decision.decision : null;
+  let partiesOf: ((id: string) => readonly string[] | undefined) | undefined; // 11-09 twin of transport.ts
   if (own) {
     const ws = await store.getLatestWorldState(gameId);
     if (ws && config?.modules?.teamRoles?.enabled) briefings = roleBriefings(ws.state, config, own.id) as never;
     if (ws) {
+      partiesOf = pactParties(ws.state.agreements);
       fx = ws.state.fx_rates ?? {};
       agreements = summarizeAgreementsFor(ws.state, own.id, nameOf);
       if (config) {
@@ -152,6 +155,7 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
         sizing = projectMarketSizing(config, own.id, lastFull?.result ?? null, (id: string) => config.modules?.geography?.markets?.find((m: any) => m.id === id)?.label ?? id);
         // reveal = this team bought market research this round → unlocks rivals' rosters (poaching) + private stocks.
         firms = projectFirms(ws.state, config, own.id, lastFull?.result.firm_results ?? [], !!decision?.decision?.buy_info, nameOf);
+        if (decision?.decision?.buy_info) research = projectResearch(allResults, ws.state, config, own.id, nameOf);
         hiringMarket = generateHiringMarket(config, ws.state.seed, pub.round);
       }
       shocks = projectShocks(ws.state, pub.round, config ?? undefined, own.id);
@@ -162,10 +166,10 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
     segments: pub.segments, own, ownResult, unitCostEst, fx, names, styles, agreements, lobbyInitiatives,
     markets, sizing, firms, shocks, history, hiringMarket, seats,
     ...(teamPlan ? { teamPlan } : {}),
-    standing, draft, infoActive: !!decision?.decision?.buy_info, deadlineAt: game?.deadline_at ?? null,
+    standing, draft, infoActive: !!decision?.decision?.buy_info, research, deadlineAt: game?.deadline_at ?? null,
     briefings: briefings.map((b) => ({ ...b, lines: b.lines.map((l: string) => renameFirms(l, names)) })),
     standings: (last?.standings ?? []).map((s: any) => ({ ...s, name: names[s.firm_id] ?? s.firm_id })),
-    events: visibleEvents(last?.events ?? [], own?.id).map((e: string) => renameFirms(e, names)), // DW-071: private news stays private
+    events: visibleEvents(last?.events ?? [], own?.id, partiesOf).map((e: string) => renameFirms(e, names)), // DW-071 / 11-09: one firm's own news stays its own
     submitted: decision?.submitted ?? false,
     ...(seat ? { seat: { teamId: seat.teamId, firmId: seat.firmId, role: seat.role } } : {}),
   };
@@ -286,7 +290,7 @@ Deno.serve(async (req: Request) => {
 
     // ---- instructor (passcode-gated) ----
     if (path.startsWith("/instructor")) {
-      if (!validInstructorPass(req.headers.get("x-instructor-pass"))) return json(401, { error: "bad instructor passcode" });
+      if (!validInstructorPass(req.headers.get("x-instructor-pass"))) return json(401, { error: "wrong instructor passcode" });
       const tier = instructorTier(req.headers.get("x-instructor-pass"));
       // DW-049: the instructor's own games (twin of transport.ts).
       if (method === "GET" && path === "/instructor/games") return json(200, { games: await orch.listGames((g: any) => ownsGame(tier, g)) });
@@ -315,7 +319,7 @@ Deno.serve(async (req: Request) => {
       if (method === "POST" && path === "/instructor/roster") {
         // Roster rows resolve to EXISTING users by NetID/email and hand back their claim codes —
         // effectively an account-takeover tool, so it stays with the primary (owner) passcode.
-        if (tier !== "primary") return json(403, { error: "roster provisioning needs the primary instructor passcode" });
+        if (tier !== "primary") return json(403, { error: "loading a class roster needs the main instructor passcode — this one can create and run games only" });
         const roster = body.roster;
         if (!Array.isArray(roster) || !roster.length) return json(400, { error: "roster array required" });
         // DW-046 (twin of transport.ts): dedupe by case-insensitive NetID, provision one row at
@@ -361,7 +365,7 @@ Deno.serve(async (req: Request) => {
       if (method === "POST" && path === "/instructor/resume") {
         const game = await store.getGameByCode(String(body.code ?? "").toUpperCase());
         if (!game) return json(404, { error: "no game found for that code" });
-        if (!ownsGame(tier, game)) return json(403, { error: "not your game" });
+        if (!ownsGame(tier, game)) return json(403, { error: "that game was created under a different instructor passcode" });
         return json(200, { gameId: game.id, joinCode: game.join_code, nRounds: game.n_rounds });
       }
       // Every remaining /instructor/games/:id/* route is scoped to the owning tier.
@@ -369,7 +373,7 @@ Deno.serve(async (req: Request) => {
       if (owned) {
         const g = await store.getGame(owned[1]);
         if (!g) return json(404, { error: `no game ${owned[1]}` });
-        if (!ownsGame(tier, g)) return json(403, { error: "not your game" });
+        if (!ownsGame(tier, g)) return json(403, { error: "that game was created under a different instructor passcode" });
       }
       // Instructor analytics dashboard (read-only) + research data export.
       const ex = path.match(/^\/instructor\/games\/([^/]+)\/export$/);

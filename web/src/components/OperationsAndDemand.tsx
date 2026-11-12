@@ -89,9 +89,9 @@ export function OperationsAndDemand({ result, view }: { result: FirmRoundResult;
         <Card>
           <div className="flex items-center gap-1.5">
             <Eyebrow>Capacity &amp; Demand</Eyebrow>
-            <InfoDot title="Reading this chart">Three bars on one scale. <b>First choice</b> is the demand you won outright: buyers who picked you at your price. <b>Sold</b> is what you delivered. If it falls short, the red hatched gap is buyers you turned away because you ran out of product. If it runs <i>past</i> first choice, the extra is <b>spillover</b>: rivals ran out, and some of their buyers settled for you — it only reaches firms with spare tanks. <b>Capacity</b> is what you could brew; a hatched tail is idle tank you paid upkeep on. Unserved demand says build. Idle tanks say you overbuilt or priced yourself out of volume — unless you are holding them to catch spillover when rivals stock out.</InfoDot>
+            <InfoDot title="Reading this chart">One bar per category, all on the same scale. The <b>solid bar</b> is what you sold: first the buyers who picked you first, then (second colour) rivals' buyers who came to you because their brewery sold out. The <b>red hatch</b> is buyers who picked you first and found you sold out. The <b>black tick</b> marks everyone who picked you first. The <b>light track</b> behind each bar is the tank space you gave that category; track left showing past the bar stood idle, and you paid upkeep on it. Turned-away buyers mean you ran short. Idle track means tanks you paid for went unused.</InfoDot>
           </div>
-          <CapacityVsDemand result={result} cap={view.own.cap} />
+          <CapacityVsDemand result={result} sizing={view.sizing} inventoryOn={view.inventoryEnabled} />
         </Card>
         {unitCostCard}
       </div>
@@ -129,7 +129,7 @@ export function OperationsAndDemand({ result, view }: { result: FirmRoundResult;
         <Card>
           <Eyebrow>Your Programs</Eyebrow>
           <div className="grid gap-1">
-            {repOn && <Row label={<span>Reputation <span className="text-[0.62rem] text-inksoft">honoring deals → cheaper borrowing</span></span>} value={<span>{meter(result.state.reputation, 12)} <span className="tnum ml-1">{result.state.reputation.toFixed(1)}</span></span>} />}
+            {repOn && <Row label={<span>Reputation <span className="text-[0.62rem] text-inksoft">keeping deals makes borrowing cheaper</span></span>} value={<span>{meter(result.state.reputation, 12)} <span className="tnum ml-1">{result.state.reputation.toFixed(1)}</span></span>} />}
             {sustOn && <Row label={<span>Water efficiency <span className="text-[0.62rem] text-inksoft">drought armor</span></span>} value={<span>{meter(result.state.water_efficiency, 30)} <span className="tnum ml-1">{result.state.water_efficiency.toFixed(1)}</span></span>} />}
             {rndOn && <Row label={<span>R&amp;D progress <span className="text-[0.62rem] text-inksoft">race to the new category</span></span>} value={<span>{meter(result.state.rnd_progress, 60)} <span className="tnum ml-1">{result.state.rnd_progress.toFixed(0)}</span></span>} />}
             {vassets.length > 0 && <Row label="Vertical assets" value={vassets.map((a) => a.id.replace(/_/g, " ")).join(" · ")} />}
@@ -214,7 +214,7 @@ export function OperationsAndDemand({ result, view }: { result: FirmRoundResult;
             <span className="text-inksoft">Turnover <span className="text-copperdeep">{result.inventory.turnover.toFixed(2)}×</span></span>
           </div>
           <div className="mt-2 text-[0.7rem] leading-snug text-inksoft">
-            Turnover = sold ÷ average stock on hand (higher is leaner). Carried kegs tie up cash and lose a share to spoilage each round — match your run-rate to demand.
+            Turnover = drinks sold ÷ average stock on hand; higher means less stock sitting. Carried kegs tie up cash, and a share of them spoils each round.
           </div>
         </Card>
       )}

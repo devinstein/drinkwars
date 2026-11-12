@@ -13,9 +13,9 @@
  */
 import { useId } from "react";
 import type { ReactNode } from "react";
-import type { Config, PnL, CashFlow, FirmRoundResult } from "drinkwars-engine";
+import type { Config, PnL, CashFlow, FirmRoundResult, MarketSizingView } from "drinkwars-engine";
 import type { GameView, FirmSnapshot, Standing } from "../game/controller.js";
-import { fmt, MONEY_DISPLAY, STOCK_LABEL } from "../labels.js";
+import { fmt, MONEY_DISPLAY, STOCK_LABEL, SEG_LABEL } from "../labels.js";
 import { RadialScore, Legend } from "./charts.js";
 import { Sparkline } from "./Sparkline.js";
 import { Tag } from "./ui.js";
@@ -56,10 +56,10 @@ const moneyC = (raw: number): string => {
 const moneyCSigned = (n: number): string => (fin(n) >= 0 ? "+" + moneyC(n) : moneyC(n));
 const priceSigned = (n: number): string => `${fin(n) < 0 ? "−$" : "+$"}${Math.abs(fin(n)).toFixed(2)}`;
 
-/** SVG text in the house style (IBM Plex labels; tabular body figures for numbers). */
+/** SVG text in the house style (house label face; tabular body figures for numbers). */
 function T({ x, y, children, fill = INK, size = 10, weight = 500, anchor = "start", tab = false }: { x: number; y: number; children: ReactNode; fill?: string; size?: number; weight?: number; anchor?: "start" | "middle" | "end"; tab?: boolean }) {
   return (
-    <text x={x} y={y} fill={fill} fontSize={size} fontWeight={weight} textAnchor={anchor} fontFamily={tab ? "var(--font-body)" : "'IBM Plex Sans', sans-serif"} style={tab ? { fontVariantNumeric: "tabular-nums lining-nums" } : undefined}>
+    <text x={x} y={y} fill={fill} fontSize={size} fontWeight={weight} textAnchor={anchor} fontFamily={tab ? "var(--font-body)" : "var(--font-mono)"} style={tab ? { fontVariantNumeric: "tabular-nums lining-nums" } : undefined}>
       {children}
     </text>
   );
@@ -184,12 +184,12 @@ export function CashBridge({ cash, opening }: { cash: CashFlow; opening?: number
   const steps: BridgeStep[] = [
     ...(anchored ? [{ label: "Open", total: opening as number, color: CLAY }] : []),
     { label: "Operating", delta: op },
-    { label: "Investing", delta: inv, title: `Investing (capex out / divest in): ${moneyCSigned(inv)}` },
+    { label: "Investing", delta: inv, title: `Investing (spent on tanks and sites, or recovered by selling them): ${moneyCSigned(inv)}` },
     { label: "Financing", delta: finc },
     ...(Math.abs(resid) > 1e-6 * scale ? [{ label: "Shock", delta: resid, color: BRICK, title: `Shock cash hit: ${moneyCSigned(resid)}` }] : []),
     anchored
       ? { label: "Close", total: (opening as number) + dc, color: COPPER }
-      : { label: "Δ Cash", total: dc, color: dc >= 0 ? HOP : BRICK },
+      : { label: "Change in cash", total: dc, color: dc >= 0 ? HOP : BRICK },
   ];
   return (
     <div>
@@ -207,90 +207,143 @@ export function CashBridge({ cash, opening }: { cash: CashFlow; opening?: number
 /** What buyers wanted vs what you sold vs what you could brew. Hatched red =
  *  lost sales (demand above what you supplied); hatched grey = idle tanks
  *  (capacity above what you sold). The dashed rule marks capacity everywhere. */
-export function CapacityVsDemand({ result, cap }: { result: FirmRoundResult; cap: number }) {
+/** Capacity vs demand (11-09 redesign — Devin: the capacity bar repeated the hatched line, and inventory,
+ *  capacity and turned-away demand each needed their own colour). One bar per category, all on ONE scale:
+ *   · solid = what you sold: first-choice buyers you served, then rivals' sold-out buyers you caught;
+ *   · hatch = turned away — buyers who picked you first and found you sold out;
+ *   · tick  = everyone who picked you first;
+ *   · track = the tanks allotted to the category, drawn once (what shows past the bar stood idle).
+ *  With the inventory module on, a Stock row splits the quarter's sales into carried-in stock and fresh brew.
+ *  Per-category gaps come from `sizing.cats` (summed per market × category, so a category can both turn
+ *  buyers away in one city and catch overflow in another); without it they come from the category totals. */
+export function CapacityVsDemand({ result, sizing, inventoryOn }: { result: FirmRoundResult; sizing?: MarketSizingView | null; inventoryOn?: boolean; cap?: number }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
-  const segs = Object.values(result?.segments ?? {});
-  const desired = segs.reduce((a, s) => a + Math.max(0, fin(s?.q_desired)), 0);
-  const sold = segs.reduce((a, s) => a + Math.max(0, fin(s?.q_sold)), 0);
-  const capV = Math.max(0, fin(cap));
-  const max = Math.max(desired, sold, capV);
-  if (!(max > 0)) return <Pending />;
+  const cats = sizing?.cats ?? [];
+  type BarRow = { key: string; label: string; served: number; caught: number; sold: number; turnedAway: number; desired: number; alloc: number | null; stock?: { fromStock: number; brewed: number; sellable: number; carried: number; spoiled: number } };
+  const rows: BarRow[] = Object.entries(result?.segments ?? {}).map(([seg, x]) => {
+    const desired = Math.max(0, fin(x?.q_desired)), sold = Math.max(0, fin(x?.q_sold));
+    const c = cats.find((y) => y.id === seg);
+    const caught = Math.min(sold, c ? Math.max(0, fin(c.caught)) : Math.max(0, sold - desired));
+    const turnedAway = c ? Math.max(0, fin(c.turnedAway)) : Math.max(0, desired - sold);
+    return { key: seg, label: SEG_LABEL[seg] ?? seg, served: sold - caught, caught, sold, turnedAway, desired, alloc: x?.cap_alloc == null ? null : Math.max(0, fin(x.cap_alloc)) };
+  }).filter((r) => r.desired > 0.5 || r.sold > 0.5 || (r.alloc ?? 0) > 0.5);
+  if (!rows.length) return <Pending />;
+  const sum = (k: "served" | "caught" | "sold" | "turnedAway" | "desired") => rows.reduce((a, r) => a + r[k], 0);
+  const allocKnown = rows.every((r) => r.alloc != null);
+  const total: BarRow | null = rows.length > 1 ? { key: "_all", label: "All categories", served: sum("served"), caught: sum("caught"), sold: sum("sold"), turnedAway: sum("turnedAway"), desired: sum("desired"), alloc: allocKnown ? rows.reduce((a, r) => a + (r.alloc ?? 0), 0) : null } : null;
+  const inv = inventoryOn ? result.inventory : null;
+  const stock: BarRow | null = inv && inv.begin + inv.produced > 0.5 ? (() => {
+    const fromStock = Math.min(Math.max(0, inv.begin), Math.max(0, inv.sold)); // carried-in drinks sell first
+    return { key: "_stock", label: "Stock", served: 0, caught: 0, sold: inv.sold, turnedAway: 0, desired: 0, alloc: null, stock: { fromStock, brewed: Math.max(0, inv.sold - fromStock), sellable: inv.begin + inv.produced, carried: Math.max(0, inv.end), spoiled: Math.max(0, inv.spoiled) } };
+  })() : null;
+  const all = [...rows, ...(total ? [total] : []), ...(stock ? [stock] : [])];
+  const max = Math.max(1, ...all.map((r) => Math.max(r.alloc ?? 0, r.sold + r.turnedAway, r.desired, r.stock?.sellable ?? 0)));
+  const at = (v: number) => (Math.max(0, Math.min(v, max)) / max) * 100; // % of the plot width
+  const idleOf = (r: BarRow) => (r.alloc == null ? 0 : Math.max(0, r.alloc - r.sold));
+  const sumIdle = rows.reduce((a, r) => a + idleOf(r), 0);
+  const tA = sum("turnedAway"), cg = sum("caught");
 
-  const VW = 340, padL = 62, padR = 48, padT = 14, rowH = 30, bh = 14;
-  const VH = padT + rowH * 3 + 4;
-  const w = (v: number) => (Math.min(v, max) / max) * (VW - padL - padR);
-  const lost = Math.max(0, desired - sold);
-  const idle = Math.max(0, capV - sold);
-  // The bar totals net spillover in one category against a shortfall in another, so the
-  // firm-wide `lost` is NOT the number any per-category line shows — the caption used to
-  // publish 2,036u beside a detail row reading 10,131 unserved, on the same screen. Sum the
-  // per-category gaps separately so the caption says the same thing the detail does.
-  const unservedGross = segs.reduce((a, x) => a + Math.max(0, fin(x?.q_desired) - fin(x?.q_sold)), 0);
-  const spillGross = segs.reduce((a, x) => a + Math.max(0, fin(x?.q_sold) - fin(x?.q_desired)), 0);
-  const rowY = (i: number) => padT + rowH * i + (rowH - bh) / 2;
-  const capX = padL + w(capV);
-
-  // `solidTo` stops the solid fill short of `main`, so the hatched remainder reads as a
-  // different KIND of thing (idle tanks) rather than a faint texture over the same bar.
-  const row = (i: number, label: string, main: number, mainColor: string, hatch?: { from: number; to: number; pattern: string; tag: string; tagColor: string; outline?: string }, solidTo?: number) => {
-    const y = rowY(i);
+  /** One bar: track (tanks) → solid segments → hatch → first-choice tick. Percent units keep it crisp at any width. */
+  const bar = (r: BarRow) => {
+    const segs: { from: number; to: number; fill: string; tip: string }[] = r.stock
+      ? [
+          { from: 0, to: r.stock.fromStock, fill: "var(--chart-stock)", tip: `Sold from carried stock: ${fmt.int(r.stock.fromStock)}` },
+          { from: r.stock.fromStock, to: r.stock.fromStock + r.stock.brewed, fill: "var(--chart-own)", tip: `Sold from this quarter's brew: ${fmt.int(r.stock.brewed)}` },
+        ]
+      : [
+          { from: 0, to: r.served, fill: "var(--chart-own)", tip: `First-choice buyers served: ${fmt.int(r.served)}` },
+          { from: r.served, to: r.sold, fill: "var(--chart-caught)", tip: `Rivals' sold-out buyers you caught: ${fmt.int(r.caught)}` },
+        ];
+    const track = r.stock ? r.stock.sellable : r.alloc;
     return (
-      <g key={label}>
-        <title>{`${label}: ${fmt.int(main)} units`}</title>
-        <T x={padL - 6} y={y + bh - 3} anchor="end" size={9} fill={SOFT}>{label}</T>
-        <rect x={padL} y={y} width={Math.max(1, w(solidTo ?? main))} height={bh} fill={mainColor} rx={2} />
-        {hatch && hatch.to > hatch.from && (
+      <svg width="100%" height={20} role="img" aria-label={r.stock ? `${r.label}: ${fmt.int(r.sold)} sold of ${fmt.int(r.stock.sellable)} on hand` : `${r.label}: ${fmt.int(r.sold)} sold, ${fmt.int(r.desired)} picked you first, ${fmt.int(r.turnedAway)} turned away${r.alloc != null ? `, ${fmt.int(r.alloc)} tanks allotted` : ""}`} style={{ display: "block", overflow: "visible" }}>
+        {track != null && track > 0.5 && (
           <g>
-            <title>{`${hatch.tag}: ${fmt.int(hatch.to - hatch.from)} units`}</title>
-            <rect x={padL + w(hatch.from)} y={y} width={Math.max(1, w(hatch.to) - w(hatch.from))} height={bh} fill={`url(#${hatch.pattern})`} stroke={hatch.outline} strokeWidth={hatch.outline ? 1 : 0} strokeDasharray={hatch.outline ? "3 2" : undefined} rx={2} />
-            {w(hatch.to) - w(hatch.from) > 52 && (
-              <T x={padL + (w(hatch.from) + w(hatch.to)) / 2} y={y + bh - 4} anchor="middle" size={7.5} weight={600} fill={hatch.tagColor}>{hatch.tag}</T>
-            )}
+            <title>{r.stock ? `On hand to sell: ${fmt.int(track)}` : `Tanks allotted: ${fmt.int(track)}${idleOf(r) > 0.5 ? ` — ${fmt.int(idleOf(r))} stood idle` : ""}`}</title>
+            <rect x="0" y="5" width={`${at(track)}%`} height="10" rx="3" fill="var(--well)" />
+            {/* the track's end-cap: flat, bar-height, a step off the surface — never mistaken for the first-choice tick */}
+            <rect x={`${at(track)}%`} y="4" width="3" height="12" rx="1" fill="var(--color-faint)" opacity="0.75" transform="translate(-3 0)" />
           </g>
         )}
-        <T x={padL + w(Math.max(main, hatch?.to ?? 0)) + 4} y={y + bh - 3} size={8.5} fill={INK} tab>{fmt.int(main)}</T>
-      </g>
+        {segs.filter((g) => g.to - g.from > 0.5).map((g, i) => (
+          <rect key={i} x={`${at(g.from)}%`} y="5" width={`${Math.max(0.4, at(g.to) - at(g.from))}%`} height="10" rx="3" fill={g.fill}><title>{g.tip}</title></rect>
+        ))}
+        {/* 2px surface gap between the solid segments (the spacer, not a border) */}
+        {segs.slice(1).filter((g, i) => g.to - g.from > 0.5 && segs[i].to - segs[i].from > 0.5).map((g, i) => <line key={`gap${i}`} x1={`${at(g.from)}%`} x2={`${at(g.from)}%`} y1="5" y2="15" stroke="var(--color-panel)" strokeWidth="2" />)}
+        {r.turnedAway > 0.5 && (
+          <rect x={`${at(r.sold)}%`} y="5" width={`${Math.max(0.4, at(r.sold + r.turnedAway) - at(r.sold))}%`} height="10" rx="3" fill={`url(#lost${uid})`}><title>{`Turned away — picked you first, found you sold out: ${fmt.int(r.turnedAway)}`}</title></rect>
+        )}
+        {!r.stock && r.desired > 0.5 && (
+          <g>
+            <title>{`Picked you first: ${fmt.int(r.desired)}`}</title>
+            <line x1={`${at(r.desired)}%`} x2={`${at(r.desired)}%`} y1="1" y2="19" stroke="var(--color-panel)" strokeWidth="4" />
+            <line x1={`${at(r.desired)}%`} x2={`${at(r.desired)}%`} y1="1" y2="19" stroke={INK} strokeWidth="2" />
+          </g>
+        )}
+      </svg>
     );
   };
 
+  const Swatch = ({ bg, border }: { bg: string; border?: string }) => <i className="inline-block h-2.5 w-3 flex-none rounded-[2px]" style={{ background: bg, boxShadow: border ? `inset 0 0 0 1px ${border}` : undefined }} />;
+  const hatchBg = "repeating-linear-gradient(45deg, var(--chart-lost) 0 1.5px, color-mix(in srgb, var(--chart-lost) 14%, transparent) 1.5px 4px)";
   return (
     <div>
-      <svg width="100%" viewBox={`0 0 ${VW} ${VH}`} style={{ display: "block" }}>
+      <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
         <defs>
           <pattern id={`lost${uid}`} width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-            <rect width="5" height="5" fill={BRICK} opacity="0.12" />
-            <line x1="0" y1="0" x2="0" y2="5" stroke={BRICK} strokeWidth="1.4" opacity="0.8" />
-          </pattern>
-          <pattern id={`idle${uid}`} width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-            <rect width="5" height="5" fill={CLAY} opacity="0.10" />
-            <line x1="0" y1="0" x2="0" y2="5" stroke={CLAY} strokeWidth="1.6" opacity="0.85" />
+            <rect width="5" height="5" fill="var(--chart-lost)" opacity="0.14" />
+            <line x1="0" y1="0" x2="0" y2="5" stroke="var(--chart-lost)" strokeWidth="1.6" />
           </pattern>
         </defs>
-        {row(0, "First choice", desired, AERO)}
-        {row(1, "Sold", sold, COPPER, lost > 0 ? { from: sold, to: desired, pattern: `lost${uid}`, tag: "unserved", tagColor: BRICK } : undefined)}
-        {row(2, "Capacity", capV, CLAY, idle > 0 ? { from: sold, to: capV, pattern: `idle${uid}`, tag: "idle", tagColor: INK, outline: CLAY } : undefined, Math.min(sold, capV))}
-        <line x1={capX} y1={padT - 6} x2={capX} y2={VH - 2} stroke={INK} strokeWidth={1} strokeDasharray="3 2" opacity={0.6} />
-        <T x={capX} y={padT - 8 + 1} anchor="middle" size={7.5} fill={SOFT}>cap</T>
       </svg>
-      {legend([["first-choice demand", AERO], ["sold", COPPER], ["unserved (hatched)", BRICK], ["capacity in use", CLAY]])}
-      <div className="mt-0.5 text-[0.62rem] text-inksoft">Hatched, dashed outline on the Capacity row = <b>idle tanks</b>: capacity you own and pay upkeep on but did not brew into.</div>
+      <div className="grid gap-2">
+        {all.map((r) => (
+          <div key={r.key} data-dw-cap-row={r.key} className={r.key === "_all" ? "border-t border-line pt-2" : r.key === "_stock" ? "border-t border-dashed border-line pt-2" : undefined}>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-[0.72rem] leading-tight">
+              <span className="whitespace-nowrap font-semibold text-ink">{r.label}</span>
+              <span className="tnum ml-auto text-right text-inksoft">
+                {r.stock
+                  ? <>sold <b className="text-ink">{fmt.int(r.sold)}</b> of {fmt.int(r.stock.sellable)} on hand</>
+                  : <>sold <b className="text-ink">{fmt.int(r.sold)}</b>{r.desired > 0.5 ? <> · picked you {fmt.int(r.desired)}</> : null}{r.alloc != null ? <> · tanks {fmt.int(r.alloc)}</> : null}</>}
+              </span>
+            </div>
+            {bar(r)}
+          </div>
+        ))}
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.64rem] text-inksoft">
+        <span className="flex items-center gap-1"><Swatch bg="var(--chart-own)" />your first-choice buyers</span>
+        {cg > 0.5 && <span className="flex items-center gap-1"><Swatch bg="var(--chart-caught)" />rivals' buyers you caught</span>}
+        {tA > 0.5 && <span className="flex items-center gap-1"><Swatch bg={hatchBg} />turned away</span>}
+        <span className="flex items-center gap-1"><i className="inline-block h-3 w-[2px] flex-none" style={{ background: INK }} />picked you first</span>
+        {allocKnown && <span className="flex items-center gap-1"><Swatch bg="var(--well)" border={LINE} />tanks allotted</span>}
+        {stock && <span className="flex items-center gap-1"><Swatch bg="var(--chart-stock)" />from carried stock</span>}
+      </div>
       <Cap>
-        {unservedGross > 0.5 && (
-          <span className="text-brick">Unserved demand {fmt.int(unservedGross)}u — buyers who chose you and could not be served. </span>
-        )}
-        {spillGross > 0.5 && (
-          <span className="text-hop">Spillover +{fmt.int(spillGross)}u — rivals ran out and some of their buyers settled for you. </span>
-        )}
-        {unservedGross > 0.5 && (spillGross > 0.5 || idle > 0.5) && (
+        {tA > 0.5 && <span>You turned away <b className="text-ink">{fmt.int(tA)}</b> drinks: buyers picked you first and found you sold out. </span>}
+        {cg > 0.5 && <span>You caught <b className="text-ink">{fmt.int(cg)}</b> drinks from rivals who sold out. </span>}
+        {tA > 0.5 && (cg > 0.5 || sumIdle > 0.5) && (
           // Net of the overflow caught AND the tanks left idle — the same arithmetic as the Market size card's
           // "the other N is what more tanks would close", so the two cards on this screen agree.
-          unservedGross - spillGross - idle > 0.5
-            ? <span>Net of that overflow and the idle tanks, {fmt.int(unservedGross - spillGross - idle)}u still had nowhere to brew: you turned buyers away in one category while {spillGross > 0.5 ? "catching a rival's overflow" : "leaving tanks idle"} in another. </span>
-            : <span>Net, nothing: the overflow you caught and the tanks you left idle could have brewed every unit you turned away — a split problem, not a tank problem. </span>
+          tA - cg - sumIdle > 0.5
+            ? <span>Even with every tank pointed at your own buyers, {fmt.int(tA - cg - sumIdle)} would still have been turned away. </span>
+            : <span>Those tanks could have served everyone you turned away: the split across categories or cities was off, not the number of tanks. </span>
         )}
-        {unservedGross <= 0.5 && spillGross <= 0.5 && "Every buyer who chose you was served. "}
-        {idle > 0.5 ? <span>Idle capacity {fmt.int(idle)}u paying upkeep for nothing.</span> : "Every tank earned its keep."}
+        {tA <= 0.5 && cg <= 0.5 && "Everyone who picked you was served. "}
+        {allocKnown && (sumIdle > 0.5 ? <span>{fmt.int(sumIdle)} drinks of tank space stood idle, and you paid upkeep on it.</span> : "Every tank was used.")}
+        {stock?.stock && stock.stock.carried + stock.stock.spoiled > 0.5 && <span> {fmt.int(stock.stock.carried)} drinks carry into next quarter{stock.stock.spoiled > 0.5 ? `; ${fmt.int(stock.stock.spoiled)} spoiled` : ""}.</span>}
       </Cap>
+      <details className="mt-1 text-[0.66rem] text-inksoft">
+        <summary className="cursor-pointer select-none">Numbers</summary>
+        <table className="tnum mt-1 w-full border-collapse text-right">
+          <thead><tr className="text-faint"><th className="py-0.5 text-left font-semibold">Category</th><th className="font-semibold">Picked you</th><th className="font-semibold">Sold</th><th className="font-semibold">Caught</th><th className="font-semibold">Turned away</th>{allocKnown && <th className="font-semibold">Tanks</th>}{allocKnown && <th className="font-semibold">Idle</th>}</tr></thead>
+          <tbody>
+            {[...rows, ...(total ? [total] : [])].map((r) => (
+              <tr key={r.key} className="border-t border-line text-ink"><td className="py-0.5 text-left">{r.label}</td><td>{fmt.int(r.desired)}</td><td>{fmt.int(r.sold)}</td><td>{fmt.int(r.caught)}</td><td>{fmt.int(r.turnedAway)}</td>{allocKnown && <td>{fmt.int(r.alloc ?? 0)}</td>}{allocKnown && <td>{fmt.int(r.key === "_all" ? sumIdle : idleOf(r))}</td>}</tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
     </div>
   );
 }
@@ -340,7 +393,7 @@ export function EvaBars({ history, finance }: { history: GameView["history"]; fi
         })}
       </svg>
       {legend([["value created", HOP], ["value destroyed", BRICK]])}
-      <Cap>Economic profit ≈ net income − 2.5%/qtr charge on book equity — an approximation; the trend data carries no true ROIC−WACC.</Cap>
+      <Cap>Economic profit ≈ net income minus a charge of 2.5% a quarter on the owners' money in the firm. An approximation.</Cap>
     </div>
   );
 }
@@ -405,7 +458,7 @@ export function DuPont({ you, result, field }: { you: FirmSnapshot; result: Firm
         <FactorRow label="= Return on equity" you={roe} youText={roe != null ? fmt.pct1(roe) : "equity ≤ 0"} field={fRoe} fieldText={fRoe != null ? fmt.pct1(fRoe) : "—"} negative={(roe ?? 0) < 0} />
       </div>
       <Cap>
-        {you?.name ?? "You"} vs field median (tick). Rivals publish no statements — field margin/turnover aren&apos;t derivable; their multiplier comes from reported debt/equity, their ROE only from debt-carrying rivals.
+        {you?.name ?? "You"} against the field median (the tick). Rivals publish no statements, so the field&apos;s margin and turnover are unknown. Their equity multiplier comes from reported debt and equity, and their return on equity only from rivals that carry debt.
       </Cap>
     </div>
   );
@@ -464,7 +517,7 @@ export function RankBump({ history, standings }: { history: GameView["history"];
           </T>
         ))}
       </svg>
-      <Cap>Your rank over the rounds (1 = leading); the field is pinned at today&apos;s standings — rivals&apos; past ranks aren&apos;t recorded.</Cap>
+      <Cap>Your rank each round (1 = leading). Rivals show at today&apos;s standings, because their past ranks aren&apos;t recorded.</Cap>
     </div>
   );
 }
@@ -534,7 +587,7 @@ export function CostOfCapitalCockpit({ coc, finance }: { coc: FirmRoundResult["c
           <InfoDot title="What sets the price of your debt">
             <span className="block"><b>Leverage</b> is debt ÷ equity. It climbs when you borrow — and also when you lose money, because a loss shrinks equity even if you never touch the loan. Past {levRef.toFixed(1)}× the bank starts charging more, and at {levCap.toFixed(1)}× it stops lending: a draw that would breach the cap is cut down to what fits.</span>
             <span className="mt-1.5 block"><b>Coverage</b> is operating income ÷ interest — how many times over this quarter's profit covers the interest bill. It is the number your lender actually watches. Below {covThr.toFixed(1)}× you are in breach of covenant; below 1× the business cannot pay its lenders out of operations at all, which is what puts you under the safety line.</span>
-            <span className="mt-1.5 block"><b>Interest rate</b> is what you were charged this quarter, and it is not fixed. It starts at the risk-free {fmt.pct1(rf)} plus a {fmt.pct1(baseSpread)} spread — about {apr(healthy)} a year. The spread widens as leverage passes {levRef.toFixed(1)}× and {graduated ? `as coverage thins below ${covThr.toFixed(1)}×, reaching its full ${fmt.pct1(penalty)} only at zero operating income` : `jumps by ${fmt.pct1(penalty)} the moment coverage falls under ${covThr.toFixed(1)}×`}. Investor relations narrow it a little. So the interest line can move in a quarter when your debt did not — that is the bank repricing you, and the cure is to repay or to earn your cover back.</span>
+            <span className="mt-1.5 block"><b>Interest rate</b> is what you were charged this quarter, and it is not fixed. It starts at a base rate of {fmt.pct1(rf)} plus a {fmt.pct1(baseSpread)} risk charge, about {apr(healthy)} a year. The risk charge grows as leverage passes {levRef.toFixed(1)}× and {graduated ? `as coverage thins below ${covThr.toFixed(1)}×, reaching its full ${fmt.pct1(penalty)} only at zero operating income` : `jumps by ${fmt.pct1(penalty)} the moment coverage falls under ${covThr.toFixed(1)}×`}. Investor relations narrow it a little. So the interest line can move in a quarter when your debt did not — that is the bank repricing you, and the cure is to repay or to earn your cover back.</span>
           </InfoDot>
         </span>
         {rationed && <Tag tone="brick">Credit rationed</Tag>}
@@ -552,9 +605,9 @@ export function CostOfCapitalCockpit({ coc, finance }: { coc: FirmRoundResult["c
       <Cap>
         {rationed
           ? cov < 1.5
-            ? "Coverage fell under the 1.5× covenant — the bank moved this firm onto the penalty grid. The spread widens with how thin the cover actually is, reaching its full 5%/qtr only at zero operating income. The bank still lends up to the 3× equity cap, at this price."
+            ? "Interest coverage fell below the bank's 1.5× minimum, so the bank moved this firm onto its penalty rate. The extra charge grows as coverage thins, reaching its full 5% a quarter only at zero operating income. The bank still lends up to 3× equity, at this price."
             : "A requested draw was capped: it would have pushed debt past 3× equity, the borrowing limit."
-          : `High leverage or thin coverage widens the spread. The ticks mark where each dial turns: ${levRef.toFixed(1)}× debt-to-equity, ${covThr.toFixed(1)}× coverage, and the ${fmt.pct1(healthy)}/qtr rate a well-covered borrower pays.`}
+          : `More debt or thinner interest coverage raises the risk charge. The ticks mark where each dial turns: ${levRef.toFixed(1)}× debt-to-equity, ${covThr.toFixed(1)}× coverage, and the ${fmt.pct1(healthy)} a quarter a well-covered borrower pays.`}
       </Cap>
     </div>
   );
@@ -595,7 +648,7 @@ export function StateSmallMultiples({ history }: { history: GameView["history"] 
           </div>
         ))}
       </div>
-      <Cap>Every stock the round trend records; rank colored by direction (down the table = red). Tank capacity, trust stocks &amp; unit cost aren&apos;t carried in the trend.</Cap>
+      <Cap>Each stock the trend records, colored by direction (falling = red). Tank capacity, the trust stocks and unit cost aren&apos;t in the trend.</Cap>
     </div>
   );
 }

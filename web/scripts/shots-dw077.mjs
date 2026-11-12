@@ -71,7 +71,7 @@ const shoot = async (page, state, seat) => {
     // 390: the phone — the desk's levers with their captions above the pinned sheet
     await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2 });
     await sleep(350);
-    await page.evaluate(() => { const i = [...document.querySelectorAll("input[type=number]")].find((x) => /(Draw debt|Invest in tank capacity)/i.test(x.closest(".card")?.innerText ?? "")); const card = i?.closest(".card"); if (card) window.scrollTo(0, card.getBoundingClientRect().top + window.scrollY - 72); });
+    await page.evaluate(() => { const i = [...document.querySelectorAll("input[type=number]")].find((x) => /(Draw debt|Tank order|Invest in tank capacity)/i.test(x.closest(".card")?.innerText ?? "")); const card = i?.closest(".card"); if (card) window.scrollTo(0, card.getBoundingClientRect().top + window.scrollY - 72); });
     await sleep(250);
     await page.screenshot({ path: join(OUT, `seat--${state}_${seat}-view_390_${mode}.png`) });
     await page.setViewport({ width: 1440, height: 1100 });
@@ -100,7 +100,7 @@ try {
   // ── One (CEO): the COO changed tanks (their desk); the CEO typed a different number ──
   await apiSubmit(coo, "operations", { invest_cap: 80_000 });
   await P.ceo.bringToFront();
-  await typeInto(P.ceo, /Invest in tank capacity/i, 200000);
+  await typeInto(P.ceo, /Tank order|Invest in tank capacity/i, 200000);
   await settle(P.ceo, /1 lever locks at a teammate/);
   await shoot(P.ceo, "One", "CEO");
 

@@ -38,7 +38,7 @@ const LOCATE = `(() => {
     price: () => [...document.querySelectorAll('input[type=number][step="0.25"]')],
     presence: () => labels(/^Capacity allocation/, "label")[0] ?? null,
     run_rate: () => first(/^Run the line at$/, "input[type=range]", "label", 3),
-    invest_cap: () => first(/^Invest in tank capacity/, "input[type=number]", "label", 2),
+    invest_cap: () => first(/^(Tank order|Invest in tank capacity)/, "input[type=number]", "label", 2),
     invest_Q: () => first(/^Recipe quality$/, "input[type=range]", "label", 2),
     invest_B: () => first(/^Brand$/, "input[type=range]", "label", 2),
     invest_process: () => first(/^Brewing operations$/, "input[type=range]", "label", 2),
@@ -176,7 +176,8 @@ await typeInto(P.cfo, "debt_draw", E1.debt_draw);
 await typeInto(P.cfo, "equity_raise", ask);
 await setRange(P.cfo, "invest_T_inv", E1.invest_T_inv);
 const capWarn = await (await handle(P.cfo, "equity_cap_line")).evaluate((e) => e?.innerText ?? "");
-ok(cap > 0 && /only that much will be raised/.test(capWarn), "CFO sees 'Investors will fund up to' and the over-ask warning", `cap $${cap}, asked $${ask}: "${capWarn.slice(0, 110)}"`);
+ok(cap > 0 && /only that much will be raised/i.test(capWarn), // 11-09 copy pass: "…worth). Only that much will be raised."
+   "CFO sees 'Investors will fund up to' and the over-ask warning", `cap $${cap}, asked $${ask}: "${capWarn.slice(0, 110)}"`);
 ok(+cmoPriceShown === E1.price && (empOn ? /✓\s*$/.test(hireBtn) : /Hiring ✓/.test(hireBtn)), `form edits took (price field, Hire toggles to '${empOn ? "✓" : "Hiring ✓"}')`, `price=${cmoPriceShown} hire="${hireBtn}"`);
 const dlg1 = {};
 for (const r of ["cmo", "coo", "chro", "cfo"]) dlg1[r] = await submit(P[r], r);
@@ -185,7 +186,7 @@ for (const r of ["cmo", "coo", "chro", "cfo"]) dlg1[r] = await submit(P[r], r);
 // asserts no TEAMMATE-CONFLICT confirm, and that the over-ask is disclosed at submit.
 const moneyOnly = (t) => !/will be used|decides|suggestion|cancelled|Keep mine|replaces theirs|'s desk/.test(t);
 ok(Object.values(dlg1).every((d) => d.every(moneyOnly)), "specialists editing only their own desk get NO teammate-conflict confirm", JSON.stringify(dlg1).slice(0, 300));
-ok(dlg1.cfo.some((t) => /Equity: investors put in \$[\d,]+ of the \$[\d,]+ asked/.test(t)), "the CFO's ask past the investors' cap is disclosed at submit (the money check)", JSON.stringify(dlg1.cfo).slice(0, 200));
+ok(dlg1.cfo.some((t) => /Equity: investors put in \$[\d,]+ of the \$[\d,]+ (you asked for|asked)/.test(t)), "the CFO's ask past the investors' cap is disclosed at submit (the money check)", JSON.stringify(dlg1.cfo).slice(0, 200));
 await sleep(1200);
 dlg1.ceo = await submit(P.ceo, "ceo"); // untouched, stale form — the classic clobber
 logs.push(`[info] CEO r1 dialogs: ${JSON.stringify(dlg1.ceo)}`);

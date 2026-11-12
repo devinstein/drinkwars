@@ -4,7 +4,7 @@ import type { GameView, FirmSnapshot, ShockSignal } from "../game/controller.js"
 import { Card, Eyebrow, Stat, Tag } from "./ui.js";
 import { CategoryCoin } from "./CategoryIcons.js";
 import { firmColor } from "../lib/teamColors.js";
-import { SEG_LABEL, SEG_CHARACTER, SHOCK_META, ROLE_LABEL, ASSET_LABEL, DISTRICT_BEST, humanizeId, fmt, marketName } from "../labels.js";
+import { SEG_LABEL, SEG_CHARACTER, SHOCK_META, ROLE_LABEL, ASSET_LABEL, DISTRICT_TRAITS, humanizeId, fmt, marketName } from "../labels.js";
 import { Avatar } from "./People.js";
 
 /**
@@ -87,7 +87,7 @@ function TheCity({ view, onInspect }: { view: GameView; onInspect: (firmId: stri
             <div key={dd.id} className="rounded-md border border-line2 bg-paper2/30 p-3">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="text-sm font-semibold text-ink">{dd.label}</span>
-                <span className="text-[0.6rem] font-semibold uppercase tracking-[0.06em] text-copperdeep">{DISTRICT_BEST[dd.id] ?? ""}</span>
+                <span className="text-[0.6rem] font-semibold uppercase tracking-[0.06em] text-copperdeep">{DISTRICT_TRAITS[dd.id] ?? ""}</span>
               </div>
               {/* The three levers, legible at a glance */}
               <div className="mt-1.5 flex flex-wrap gap-1">
@@ -262,7 +262,10 @@ function District({ seg, demand, firms, shocks, youId, onInspect }: {
   const [expanded, setExpanded] = useState(false);
   const char = SEG_CHARACTER[seg] ?? { tagline: "", rewards: "", hue: "var(--color-copper)" };
   const here = firms.filter((f) => f.focus.includes(seg) && (f.priceBySeg[seg] ?? 0) > 0);
-  const leader = here.length ? [...here].sort((a, b) => (b.shareBySeg[seg] ?? 0) - (a.shareBySeg[seg] ?? 0))[0] : null;
+  // 11-07: with public prices a rival can sit on the price line while its category share stays behind research —
+  // so a leader is named only when every share on the line is known, and an unknown share reads "—", not 0%.
+  const shareKnown = (f: FirmSnapshot) => f.shareBySeg[seg] != null;
+  const leader = here.length && here.every(shareKnown) ? [...here].sort((a, b) => (b.shareBySeg[seg] ?? 0) - (a.shareBySeg[seg] ?? 0))[0] : null;
   const hitBy = shocks.filter((s) => s.target === seg || s.target === "all");
   const activeHit = hitBy.find((s) => s.active);
 
@@ -322,7 +325,7 @@ function District({ seg, demand, firms, shocks, youId, onInspect }: {
             <div className="absolute inset-x-0 top-1/2 h-px bg-line" />
             {here.map((f) => {
               const x = xOf(f.priceBySeg[seg] ?? 0);
-              const d = 16 + Math.round(((f.shareBySeg[seg] ?? 0) / maxShare) * 22); // 16–38px
+              const d = shareKnown(f) ? 16 + Math.round(((f.shareBySeg[seg] ?? 0) / maxShare) * 22) : 22; // 16–38px; unknown share → a neutral size
               const c = firmColor(f.firm_id);
               const you = f.firm_id === youId;
               const isHover = hover === f.firm_id;
@@ -331,7 +334,7 @@ function District({ seg, demand, firms, shocks, youId, onInspect }: {
                   key={f.firm_id}
                   onClick={() => onInspect(f.firm_id)}
                   onMouseEnter={() => setHover(f.firm_id)}
-                  title={`${f.name} · ${fmt.price(f.priceBySeg[seg] ?? 0)} · ${fmt.pct(f.shareBySeg[seg] ?? 0)} share`}
+                  title={`${f.name} · ${fmt.price(f.priceBySeg[seg] ?? 0)}${shareKnown(f) ? ` · ${fmt.pct(f.shareBySeg[seg] ?? 0)} share` : ""}`}
                   className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 transition-transform hover:z-20 hover:scale-110"
                   style={{
                     left: `${x * 100}%`, top: "50%", width: d, height: d,
@@ -377,7 +380,7 @@ function District({ seg, demand, firms, shocks, youId, onInspect }: {
                   <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: firmColor(f.firm_id) }} aria-hidden="true" />
                   <span className={`min-w-0 flex-1 truncate ${f.firm_id === youId ? "font-bold text-copperdeep" : "text-ink"}`}>{f.firm_id === youId ? `${f.name} (you)` : f.name}</span>
                   <span className="tnum shrink-0 text-inksoft">{fmt.price(f.priceBySeg[seg] ?? 0)}</span>
-                  <span className="tnum w-10 shrink-0 text-right text-inksoft">{fmt.pct(f.shareBySeg[seg] ?? 0)}</span>
+                  <span className="tnum w-10 shrink-0 text-right text-inksoft">{shareKnown(f) ? fmt.pct(f.shareBySeg[seg] ?? 0) : "—"}</span>
                 </div>
               ))}
             </div>
