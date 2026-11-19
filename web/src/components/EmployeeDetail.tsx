@@ -19,12 +19,14 @@ const bio = (role: string, skill: number, first: string): string => {
 
 /** Full-screen dossier for one of your people (spec §3.6): identity + bio, morale and
  *  its drivers, what they contribute, compensation vs. the market, and the actions. */
-export function EmployeeDetail({ employee: e, role, roleLabel, cfg, raiseValue, onRaise, onFire, firing, onClose }: {
+export function EmployeeDetail({ employee: e, role, roleLabel, cfg, raiseValue, onRaise, onFire, firing, onClose, needFactor }: {
   employee: Employee;
   role?: EmployeeRoleConfig;
   roleLabel: string;
   cfg?: EmployeesConfig; // DW-075: loyalty block + poach_base drive the dividend and risk lines
   raiseValue?: number;
+  /** 11-18: what staff need ÷ the going pay (view.staffNeed); 1 or absent ⇒ the going pay. */
+  needFactor?: number | null;
   onRaise: (salary: number) => void;
   onFire: () => void;
   firing: boolean;
@@ -38,6 +40,11 @@ export function EmployeeDetail({ employee: e, role, roleLabel, cfg, raiseValue, 
   }, [onClose]);
 
   const market = role ? role.base_salary * (0.55 + 0.15 * e.skill) : e.salary;
+  const nf = needFactor ?? 1;
+  const need = market * nf; // what keeps morale rising (engine employees.ts)
+  const needNote = Math.abs(nf - 1) < 0.005 ? null
+    : nf < 1 ? `Your Taproom community is strong, so they need ${Math.round((1 - nf) * 100)}% less than the market rate.`
+    : `Your Taproom community is below where it started, so they need ${Math.round((nf - 1) * 100)}% more than the market rate. Spending on it takes effect a quarter later.`;
   const stockLabel = role ? STOCK_LABEL[role.primary_stock as keyof typeof STOCK_LABEL] ?? role.primary_stock : "";
   // DW-075 loyalty dividend: the engine's own multiplier (1 + loyalty) and this quarter's poach roll
   // poach_base × (1 − morale) × (1 − shield × loyalty/cap). Shown only when the game tracks loyalty.
@@ -48,7 +55,7 @@ export function EmployeeDetail({ employee: e, role, roleLabel, cfg, raiseValue, 
   const contrib = role ? e.skill * role.gain_per_skill * e.satisfaction * (1 + loy) : 0;
   const satPct = Math.round(e.satisfaction * 100);
   const satTone = e.satisfaction > 0.6 ? "var(--color-hop)" : e.satisfaction > 0.35 ? "var(--color-gold)" : "var(--color-brick)";
-  const paidWell = e.salary >= market;
+  const paidWell = e.salary >= need;
 
   return (
     <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4 backdrop-blur-sm" onMouseDown={(ev) => { if (ev.target === ev.currentTarget) onClose(); }}>
@@ -72,7 +79,7 @@ export function EmployeeDetail({ employee: e, role, roleLabel, cfg, raiseValue, 
             </div>
             <div className="h-2 w-full overflow-hidden rounded-[2px] bg-line"><div className="h-full" style={{ width: `${satPct}%`, background: satTone }} /></div>
             <div className="mt-1.5 grid gap-0.5 text-[0.72rem]">
-              <Driver good={paidWell} label={paidWell ? "Paid at or above market" : "Paid below market"} />
+              <Driver good={paidWell} label={needNote ? (paidWell ? "Paid what they need or more" : "Paid less than they need") : (paidWell ? "Paid at or above market" : "Paid below market")} />
               <Driver good={e.tenure_rounds >= 3} label={e.tenure_rounds >= 3 ? `Settled in (${e.tenure_rounds} rounds)` : "Still new"} />
             </div>
           </div>
@@ -85,7 +92,7 @@ export function EmployeeDetail({ employee: e, role, roleLabel, cfg, raiseValue, 
               {loyCfg && (
                 <div className="mt-1.5 border-t border-line pt-1.5">
                   <div className="flex items-center justify-between"><span className="text-inksoft">Loyalty dividend</span><span className="tnum font-semibold" style={{ color: loy > 0 ? "var(--color-hop)" : "var(--color-inksoft)" }}>+{Math.round(loy * 100)}%</span></div>
-                  <div className="mt-0.5 text-[0.7rem] text-inksoft">{e.tenure_rounds} quarter{e.tenure_rounds === 1 ? "" : "s"} × morale, up to +{Math.round(loyCfg.cap * 100)}% — it walks out with them.</div>
+                  <div className="mt-0.5 text-[0.7rem] text-inksoft">{e.tenure_rounds} quarter{e.tenure_rounds === 1 ? "" : "s"} × morale, up to +{Math.round(loyCfg.cap * 100)}% — lost if they leave.</div>
                   <div className="mt-0.5 flex items-center justify-between text-[0.7rem]"><span className="text-inksoft">Poach risk this quarter</span><span className="tnum" style={{ color: poachRisk > 0.03 ? "var(--color-brick)" : "var(--color-inksoft)" }}>{e.tenure_rounds >= 1 ? `${(poachRisk * 100).toFixed(1)}%` : "— (too new)"}</span></div>
                 </div>
               )}
@@ -101,6 +108,12 @@ export function EmployeeDetail({ employee: e, role, roleLabel, cfg, raiseValue, 
             <div className="flex items-center justify-between text-[0.82rem]">
               <span className="text-inksoft">Market rate</span><span className="tnum text-ink">{fmt.money(Math.round(market))}/round</span>
             </div>
+            {needNote && (<>
+              <div className="flex items-center justify-between text-[0.82rem]">
+                <span className="text-inksoft">What they need to stay happy</span><span className="tnum text-ink">{fmt.money(Math.round(need))}/round</span>
+              </div>
+              <div className="mt-0.5 text-[0.7rem] leading-snug text-inksoft">{needNote}</div>
+            </>)}
             <label className="mt-2 flex items-center gap-2 text-[0.78rem]">
               <span className="text-inksoft">Raise to $</span>
               <input type="number" min={e.salary} value={raise} onChange={(ev) => setRaise(ev.target.value)} placeholder={String(e.salary)}

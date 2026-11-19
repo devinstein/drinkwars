@@ -114,18 +114,22 @@ export function ModeSelector({ onChange }: { onChange: (modules: ModuleSelection
           const isOpen = open.has(cat.id);
           return (
             <div key={cat.id} className="overflow-hidden rounded-md border border-line">
-              <button
-                type="button"
-                onClick={() => toggleOpen(cat.id)}
-                className="flex w-full items-center gap-2 bg-paper2/50 px-3 py-2 text-left transition-colors hover:bg-paper2"
-              >
-                <span className={`inline-block text-[0.6rem] text-inksoft transition-transform ${isOpen ? "rotate-90" : ""}`}>▸</span>
-                <span className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-ink">{cat.label}</span>
-                <InfoDot title={cat.label}>{cat.blurb}</InfoDot>
-                <span className="ml-auto font-mono text-[0.62rem] text-inksoft">
-                  {onCount > 0 ? <span className="text-copperdeep">{onCount} on</span> : `${mods.filter((m) => m.implemented).length} available`}
-                </span>
-              </button>
+              {/* 11-18: the "?" sat INSIDE the header button (a button in a button: invalid, and screen readers read the pair as one control) */}
+              <div className="flex w-full items-center gap-2 bg-paper2/50 pr-3 transition-colors hover:bg-paper2">
+                <button
+                  type="button"
+                  onClick={() => toggleOpen(cat.id)}
+                  aria-expanded={isOpen}
+                  className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-3 text-left"
+                >
+                  <span aria-hidden className={`inline-block text-[0.6rem] text-inksoft transition-transform ${isOpen ? "rotate-90" : ""}`}>▸</span>
+                  <span className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-ink">{cat.label}</span>
+                  <span className="ml-auto font-mono text-[0.62rem] text-inksoft">
+                    {onCount > 0 ? <span className="text-copperdeep">{onCount} on</span> : `${mods.filter((m) => m.implemented).length} available`}
+                  </span>
+                </button>
+                <InfoDot title={cat.label} align="right">{cat.blurb}</InfoDot>
+              </div>
               {isOpen && (
                 <div className="grid gap-1.5 p-2">
                   {mods.map((m) => {
@@ -141,6 +145,7 @@ export function ModeSelector({ onChange }: { onChange: (modules: ModuleSelection
                           type="button"
                           disabled={locked}
                           aria-pressed={on}
+                          aria-label={m.name}
                           onClick={() => toggle(m.id)}
                           className={`mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors disabled:cursor-not-allowed ${on ? "border-copper bg-copper justify-end" : "border-line2 bg-paper justify-start"}`}
                         >

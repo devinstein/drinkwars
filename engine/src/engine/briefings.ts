@@ -55,7 +55,7 @@ export function roleBriefings(world: WorldState, c: Config, firmId: FirmId): Rol
     title: "CFO briefing — capital",
     lines: [
       `Leverage: rivals ~${rivalLev.toFixed(2)}× · yours ${myLev.toFixed(2)}×.`,
-      stretched ? "Most stretched at the table — borrowing gets pricier." : "Stronger balance sheet than the field — room to borrow.",
+      stretched ? "Your leverage is well above rivals', so borrowing costs more." : "Your leverage is at or below rivals', so there is room to borrow.",
     ],
     data: { role: "cfo", rivalLeverage: rivalLev, yourLeverage: myLev, stretched },
   };
@@ -92,7 +92,7 @@ export function roleBriefings(world: WorldState, c: Config, firmId: FirmId): Rol
     title: "COO briefing — operations",
     lines: [
       `Unit cost ${estimated ? "~" : ""}$${unitCost.toFixed(2)} a drink.`,
-      matureProcess ? "Process maturity is paying off — yields beat the field's baseline." : "Easy yield left — process investment cuts cost fastest.",
+      matureProcess ? "Operations spending has paid off; more of it now cuts cost more slowly." : "Operations spending still cuts cost quickly at this level.",
     ],
     data: { role: "coo", unitCost, matureProcess, estimated },
   };
@@ -104,13 +104,13 @@ export function roleBriefings(world: WorldState, c: Config, firmId: FirmId): Rol
   const outscaled = !!strongest && strongest.cap > me.cap * 1.3;
   const ceo: RoleBriefing = {
     role: "ceo",
-    title: "CEO briefing — the field",
+    title: "CEO briefing — rivals",
     lines: strongest
       ? [
-          `One to watch: ${strongest.id} — ${posture}${murky ? " (murky read)" : ""}.`,
-          outscaled ? "They out-scale you — a volume fight is uphill." : "Even on scale — position, don't out-spend.",
+          `One to watch: ${strongest.id} — ${posture}${murky ? " (uncertain read)" : ""}.`,
+          outscaled ? "They have 30%+ more capacity than you." : "Their capacity is similar to yours, or smaller.",
         ]
-      : ["The field has thinned out. The market is yours to lose."],
+      : ["Every rival has left the market."],
     data: { role: "ceo", watch: strongest?.id ?? null, posture, murky, outscaled },
   };
 

@@ -9,6 +9,7 @@
  */
 import { Fragment, useMemo } from "react";
 import type { GameView } from "../game/controller.js";
+import { hasResolved } from "../lib/resolved.js";
 import type { EventKind } from "./EventModal.js";
 import { FIRM_NEWS, groupDispatch, type DispatchGroup } from "./eventFeed.js";
 import { firmColor } from "../lib/teamColors.js";
@@ -31,6 +32,7 @@ const roman = (n: number): string => {
 };
 
 export function TapDispatch({ view, round }: { view: GameView; round: number }) {
+  const opening = !hasResolved(view); // 11-16: before round 1 runs there is no news — it said "every house held its ground this round"
   const youName = view.names[view.own.id] ?? "";
   // 11-09 (Devin): a hierarchy — section → group → one compact line per destination or house, with team chips.
   const { groups, singles } = useMemo(() => groupDispatch(view.events, youName, { tankUnits: tankUnitsOf(view) }), [view, youName]);
@@ -87,7 +89,7 @@ export function TapDispatch({ view, round }: { view: GameView; round: number }) 
         </div>
         <div className="display my-1 text-[2.4rem] font-black uppercase leading-[0.9] text-ink sm:text-[3.4rem]">The Tap Dispatch</div>
         <div className="font-body text-xs italic text-inksoft">
-          {stories ? `${stories} ${stories === 1 ? "story" : "stories"} from a market on the move${youMentions ? ` — ${youMentions} involve${youMentions === 1 ? "s" : ""} your house.` : "."}` : "A quiet round on the Front Range."}
+          {stories ? `${stories} ${stories === 1 ? "story" : "stories"} from a market on the move${youMentions ? ` — ${youMentions} involve${youMentions === 1 ? "s" : ""} your house.` : "."}` : opening ? "The season opens on the Front Range." : "A quiet round on the Front Range."}
         </div>
       </div>
 
@@ -121,14 +123,15 @@ export function TapDispatch({ view, round }: { view: GameView; round: number }) 
             </>
           ) : (
             <>
-              <span className="inline-block rounded-[3px] bg-hop px-2 py-0.5 font-mono text-[0.5rem] font-bold uppercase tracking-[0.1em] text-paper">Lead · Steady</span>
-              <div className="display my-2 text-3xl font-extrabold uppercase leading-[0.98] text-ink">A Quiet Round In The Valley</div>
-              <div className="font-body text-justify text-sm leading-relaxed text-ink/90">No shocks and no big moves: every house held its ground this round.</div>
+              <span className="inline-block rounded-[3px] bg-hop px-2 py-0.5 font-mono text-[0.5rem] font-bold uppercase tracking-[0.1em] text-paper">{opening ? "Lead · Season opening" : "Lead · Steady"}</span>
+              <div className="display my-2 text-3xl font-extrabold uppercase leading-[0.98] text-ink">{opening ? "The Season Opens" : "A Quiet Round In The Valley"}</div>
+              <div className="font-body text-justify text-sm leading-relaxed text-ink/90">{opening ? "Every brewery starts even. Each round's news appears here after the round runs." : "No shocks and no big moves: every house held its ground this round."}</div>
             </>
           )}
         </div>
         <div className="min-w-0 md:border-l md:border-line2 md:pl-5">
-          <div className="mb-1.5 font-mono text-[0.55rem] uppercase tracking-[0.1em] text-copperdeep">Standings · after R{round}</div>
+          <div className="mb-1.5 font-mono text-[0.55rem] uppercase tracking-[0.1em] text-copperdeep">{opening ? "Standings" : `Standings · after R${round}`}</div>
+          {opening && <div className="text-sm text-inksoft">Standings appear after round 1.</div>}
           {view.standings.map((r, i) => (
             <div key={r.firm_id} className="flex items-center gap-2 border-b border-line py-1.5 last:border-0">
               <span className="w-4 font-mono text-[0.7rem] font-bold text-inksoft">{i + 1}</span>

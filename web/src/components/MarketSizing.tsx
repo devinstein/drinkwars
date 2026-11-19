@@ -29,7 +29,7 @@ export function MarketSizing({ s }: { s: MarketSizingView }) {
           <b>TAM</b> (total addressable market) is everyone who could have bought a drink last quarter: every shopper in every open market, in every category. <b>SAM</b> (serviceable available market) is the part you could reach — the markets you sold in and the categories you stocked there. <b>SOM</b> (serviceable obtainable market) is the part you won: shoppers who picked you first. Each gap is a different problem. Outside the SAM is an expansion question (enter a market, add a category). Inside it, shoppers who chose a rival or no brewery at all are a price, quality and brand question. Only shoppers who picked you and found you sold out are a capacity question.
         </InfoDot>
       </div>
-      <div className="mb-3 text-[0.72rem] text-inksoft">Last quarter, in shoppers — one shopper buys one drink a quarter.</div>
+      <div className="mb-3 text-[0.72rem] text-inksoft">Last quarter, in shoppers.</div>
       <div className="grid gap-2">
         {tiers.map((t) => (
           <div key={t.k}>
@@ -47,7 +47,7 @@ export function MarketSizing({ s }: { s: MarketSizingView }) {
         {outside >= 0.5 && <div><b className="tnum">{fmt.int(outside)}</b> shoppers sit outside your SAM, in markets you don't sell in or categories you don't stock. <span className="text-inksoft">Reaching them means entering a market or adding a category.</span></div>}
         {s.sam - s.som >= 0.5 && <div>In your SAM, <b className="tnum">{fmt.int(s.rivals)}</b> picked a rival{nobody >= 0.5 && <> and <b className="tnum">{fmt.int(nobody)}</b> bought from no brewery</>}. <span className="text-inksoft">Winning them is price, quality and brand, not tanks.</span></div>}
         {room
-          ? <div className="text-brick"><b className="tnum">{fmt.int(so.turned)}</b> picked you and found you sold out{so.short.length ? ` in ${listOf(so.short)}` : ""}, while {so.spare.length ? listOf(so.spare) : "elsewhere you"} had room for <b className="tnum">{fmt.int(so.shiftable)}</b> more ({roomNote(so, fmt.int)}). <span className="text-inksoft">{so.net >= 0.5 ? <>Moving capacity{toward} closes up to {fmt.int(Math.min(so.shiftable, so.turned))} of it; the other {fmt.int(so.net)} is what more tanks — or a higher price — would close.</> : <>Moving capacity{toward} closes it without a single new tank.</>}</span></div>
+          ? <div className="text-brick"><b className="tnum">{fmt.int(so.turned)}</b> picked you and found you sold out{so.short.length ? ` in ${listOf(so.short)}` : ""}, while {so.spare.length ? listOf(so.spare) : "elsewhere you"} had room for <b className="tnum">{fmt.int(so.shiftable)}</b> more ({roomNote(so, fmt.int)}). <span className="text-inksoft">{so.net >= 0.5 ? <>Moving capacity{toward} closes up to {fmt.int(Math.min(so.shiftable, so.turned))} of it. More tanks or a higher price would close the other {fmt.int(so.net)}.</> : <>Moving capacity{toward} closes it without a single new tank.</>}</span></div>
           : s.turnedAway >= 0.5
             ? <div className="text-brick"><b className="tnum">{fmt.int(s.turnedAway)}</b> picked you and found you sold out{so.short.length ? ` in ${listOf(so.short)}` : ""}. <span className="text-inksoft">This is the only gap more tanks close. A higher price is the other lever.</span></div>
             : s.som > 0 && <div className="text-hop">Every shopper who picked you was served.</div>}

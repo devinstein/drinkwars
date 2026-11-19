@@ -211,6 +211,7 @@ export function resolveArena(activeFirms: FirmState[], decisions: Map<FirmId, Fi
         utility: x.utility,
         attraction: x.attraction,
         cap_alloc: x.capAlloc, // DW-084: what this category could have sold here
+        outside: u0eff, // 11-16: the value stick's anchor (diagnostic; no outcome reads it)
       };
       perFirm.get(x.firmId)![seg.id] = result;
       total += result.q_sold;

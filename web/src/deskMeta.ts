@@ -224,7 +224,7 @@ export function cockpitSignals(desk: CockpitDesk, view: GameView): Signal[] {
     out.push({ label: "Unit cost vs field", value: fmt.price(view.own.unit_cost), tone: vsField(view, view.own.unit_cost, (f) => f.unitCost, false, 0.08),
       rows: fieldSeen(view) ? [{ k: "Field", v: `≈${fmt.price(ucMed)}` }] : undefined,
       read: `${fieldSeen(view) ? "" : `${HIDDEN} `}Falls as your lifetime brewing grows and as you invest in operations. Crew morale moves productivity.` });
-    if (view.inventoryEnabled && r?.inventory) out.push({ label: "Inventory turnover", value: `${r.inventory.turnover.toFixed(1)}×`, tone: r.inventory.turnover < 1 ? "watch" : "good", read: "Drinks sold ÷ average stock on hand. Low turnover means cash sits in kegs, and kegs spoil." });
+    if (view.inventoryEnabled && r?.inventory) out.push({ label: "Inventory turnover", value: `${r.inventory.turnover.toFixed(1)}×`, tone: r.inventory.turnover < 1 ? "watch" : "good", read: "Drinks sold ÷ average stock on hand. Low turnover means cash is tied up in kegs, and kegs spoil." });
   }
 
   if (desk === "commercial") {
@@ -290,7 +290,7 @@ export function cockpitSignals(desk: CockpitDesk, view: GameView): Signal[] {
       const sc = r.scorecard_norm;
       const weakest = (Object.entries(sc) as [string, number][]).sort((a, b) => a[1] - b[1])[0];
       out.push({ label: "Weakest score part", value: `${SCORE_PART[weakest[0]] ?? weakest[0]} (${weakest[1].toFixed(2)})`, tone: weakest[1] < 0 ? "risk" : "watch",
-        read: "Your score has four parts: financial, market, preparedness and standing. This one is your lowest, measured against the field." });
+        read: "Your score has four parts: financial, market, preparedness and standing. This is your weakest part compared with rivals." });
     }
     out.push({ label: "This round", value: `R${round}/${view.nRounds}`, tone: "neutral", read: "Read each officer's numbers below, then decide where the money goes." });
     out.push(cashToWorkWith(view)); // DW-084: whoever commits the plan sees what it can be funded with
@@ -314,7 +314,7 @@ export function cockpitMetrics(desk: CockpitDesk, view: GameView): Metric[] {
     out.push({ label: "Coverage (EBIT/int)", value: `${cc.coverage.toFixed(1)}×`, tone: cc.coverage >= 3 ? "good" : cc.coverage >= 1.5 ? "watch" : "risk", hint: "Operating profit ÷ interest. Below 1.5×, the bank charges a penalty rate." });
     out.push({ label: "Leverage", value: `${cc.leverage.toFixed(2)}×`, field: fieldOf(view, () => `${fieldMed(view, (f) => f.leverage).toFixed(2)}×`), tone: vsField(view, cc.leverage, (f) => f.leverage, false, 0.2), hint: "Debt ÷ equity. Debt lets the firm grow faster, and makes losses bigger when a shock hits." });
     out.push({ label: "Cost of debt", value: fmt.pct1(cc.r_debt), tone: "neutral", hint: "The rate on new borrowing. It rises with more debt and with thin interest coverage." });
-    out.push({ label: "Net income", value: fmt.signed(r.pnl.net_income), field: fieldOf(view, () => fmt.money(fieldMed(view, (f) => f.netIncome))), tone: r.pnl.net_income >= 0 ? "good" : "risk", hint: "Profit on the books, not cash in the bank. A profitable firm can still run out of cash." });
+    out.push({ label: "Net income", value: fmt.signed(r.pnl.net_income), field: fieldOf(view, () => fmt.money(fieldMed(view, (f) => f.netIncome))), tone: r.pnl.net_income >= 0 ? "good" : "risk", hint: "Accounting profit, not cash in the bank. A profitable firm can still run out of cash." });
   }
 
   if (desk === "operations") {

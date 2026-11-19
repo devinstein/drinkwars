@@ -278,13 +278,13 @@ export function resolveGeography(
       let mRevenueLocal = 0;
       let mQ = 0;
       const agg = out.perFirm.get(f.id)!;
-      const bySeg: Record<SegmentId, { q_sold: number; share: number; price: number; q_desired: number; cap_alloc?: number }> = {};
+      const bySeg: Record<SegmentId, { q_sold: number; share: number; price: number; q_desired: number; cap_alloc?: number; utility?: number; attraction?: SegmentResult["attraction"]; outside?: number }> = {};
       for (const [segId, r] of Object.entries(segs)) {
         mRevenueLocal += r.revenue;
         mQ += r.q_sold;
         // Within-market per-segment standing (for the City View "who leads each segment here" panel).
         const segTot = res.segmentTotals.get(segId) ?? 0;
-        bySeg[segId] = { q_sold: r.q_sold, share: segTot > 1e-9 ? r.q_sold / segTot : 0, price: r.price, q_desired: r.q_desired, cap_alloc: r.cap_alloc }; // q_desired / cap_alloc: DW-084 market sizing
+        bySeg[segId] = { q_sold: r.q_sold, share: segTot > 1e-9 ? r.q_sold / segTot : 0, price: r.price, q_desired: r.q_desired, cap_alloc: r.cap_alloc, utility: r.utility, attraction: r.attraction, outside: r.outside }; // q_desired / cap_alloc: DW-084 market sizing; utility / attraction / outside: 11-16 value stick, per city
         // Aggregate this market's per-segment result into the firm's combined view.
         const prev = agg[segId];
         if (!prev) agg[segId] = { ...r, revenue: r.revenue * fx };

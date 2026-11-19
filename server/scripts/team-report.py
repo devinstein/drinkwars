@@ -106,7 +106,7 @@ def appendix(j, fid, D=None):
     want = lambda p: sum((v.get("q_desired") or 0) for v in p["segments"].values())
     for lab, f in [("Capacity (cans)", lambda p: num(p["cap"])), ("Shoppers wanted (cans)", lambda p: num(want(p)) if want(p) else "—"),
                    ("Cans sold", lambda p: num(p["totalQSold"])), ("Revenue", lambda p: usd(p["revenue"])),
-                   ("Gross profit", lambda p: usd(p["gross"])), ("Running costs", lambda p: usd(p["gross"] - p["ebit"])),
+                   ("Gross profit", lambda p: usd(p["gross"])), ("Operating costs", lambda p: usd(p["gross"] - p["ebit"])),
                    ("Net income", lambda p: usd(p["netIncome"])), ("Cash (end of round)", lambda p: usd(p["cash"])),
                    ("Debt", lambda p: usd(p["debt"])), ("Equity", lambda p: usd(p["equity"])),
                    ("Cost per can", lambda p: f"${p['unitCost']:.2f}"), ("Quality", lambda p: dec(p["Q"])), ("Brand", lambda p: dec(p["B"])),

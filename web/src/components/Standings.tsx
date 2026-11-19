@@ -3,6 +3,7 @@ import type { GameView } from "../game/controller.js";
 import { Card, Eyebrow, Tag } from "./ui.js";
 import { inContention } from "drinkwars-engine";
 import { firmColor } from "../lib/teamColors.js";
+import { minus } from "../labels.js";
 
 const STATUS_TONE: Record<string, "ink" | "hop" | "brick" | "copper"> = {
   active: "hop",
@@ -56,7 +57,7 @@ export function Standings({ view, onSelect }: { view: GameView; onSelect?: (firm
                   <div className="h-full" style={{ width: `${((s.score - lo) / span) * 100}%`, background: s.isYou ? "var(--color-copper)" : "var(--color-inksoft)" }} />
                 </div>
               </div>
-              <span className="tnum w-14 flex-none text-right text-sm">{s.score.toFixed(3)}</span>
+              <span className="tnum w-14 flex-none text-right text-sm">{minus(s.score.toFixed(3))}</span>
             </>
           );
           // DW-071: you have to survive to win — firms that have left the game rank below every

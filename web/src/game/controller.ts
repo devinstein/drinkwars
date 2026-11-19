@@ -6,8 +6,8 @@
  */
 import { GameOrchestrator, InMemoryAdapter, randomBreweryNames, renameFirms, getSeatForecasts, submitForecasts } from "drinkwars-server";
 import type { ForecastCall, SeatForecasts } from "drinkwars-server"; // DW-077 solo calls
-import { resolveConfig, decideAdaptive, ADAPTIVE_LEANS, inventoryEnabled, roleBriefings, summarizeAgreementsFor, summarizeLobbying, generateHiringMarket, projectMarkets, projectMarketSizing, projectFirms, projectShocks, projectHistory, segmentDemandTotals, compareStanding, projectResearch, visibleEvents, pactParties } from "drinkwars-engine";
-import type { RoleBriefing, AllianceSummary, LobbySummary, Candidate, MarketSizingView, ResearchView } from "drinkwars-engine";
+import { resolveConfig, decideAdaptive, ADAPTIVE_LEANS, inventoryEnabled, roleBriefings, summarizeAgreementsFor, summarizeLobbying, generateHiringMarket, projectMarkets, projectMarketSizing, projectValueStick, staffNeedFactor, researchReports, projectFirms, projectShocks, projectHistory, segmentDemandTotals, compareStanding, projectResearch, visibleEvents, pactParties } from "drinkwars-engine";
+import type { RoleBriefing, AllianceSummary, LobbySummary, Candidate, MarketSizingView, ResearchView, ValueStickView } from "drinkwars-engine";
 import type { BalanceSheet, CashFlow, Config, ConfigOverride, FirmDecision, FirmId, FirmRoundResult, FirmState, Lean, ModulesConfig, PnL, RoundResult, SegmentId, WorldState } from "drinkwars-engine";
 import { rankDistrictsForType } from "../labels.js";
 import type { TeamPlan } from "./multiplayer.js";
@@ -207,6 +207,10 @@ export interface GameView {
   fx: Record<string, number>; // MOD-B02 export exchange rates (empty when off)
   markets: MarketView[]; // MOD-B01 per-market ("city") view for the City View (empty when geography off)
   sizing?: MarketSizingView | null; // DW-084 TAM / SAM / SOM for the last resolved round (null before round 1)
+  valueStick?: ValueStickView | null; // 11-16 value stick for the last resolved round (null before round 1 / on an older result)
+  /** 11-18: what staff need ÷ the going pay at the firm's Taproom community now (engine staffNeedFactor); null on a game
+   *  without the staff-need rule (morale is judged against the going pay). */
+  staffNeed?: number | null;
   /** 11-07: the three research reports (retail scan, consumer survey with an NPS-style score, analyst brief) on
    *  the last resolved round. Class games: only when the team's plan buys research. Solo: always computed; the
    *  UI shows it once research is bought. Null before round 1 or in a game made before the reports. */
@@ -320,6 +324,9 @@ export class SinglePlayerGame {
     // exports only with international on + past the unlock round).
     const markets: MarketView[] = projectMarkets(world, this.config, this.humanFirmId, game.current_round, last?.result.firm_results ?? [], (id) => this.nameOf(id));
     const sizing = projectMarketSizing(this.config, this.humanFirmId, last?.result ?? null, (id) => this.config.modules?.geography?.markets.find((m) => m.id === id)?.label ?? id);
+    // 11-16: solo always carries the survey's WTP estimate; the screen shows it only once research is bought (as with the reports)
+    const rep = researchReports(this.config);
+    const valueStick = projectValueStick(this.config, this.humanFirmId, results, world.firms.find((f) => f.id === this.humanFirmId), rep ? { seed: world.seed, round: world.round, sd: rep.survey_sd } : null);
 
     return {
       round: game.current_round,
@@ -353,6 +360,8 @@ export class SinglePlayerGame {
       fx: world.fx_rates ?? {},
       markets,
       sizing,
+      valueStick,
+      staffNeed: this.config.costs.wts ? staffNeedFactor(world.firms.find((f) => f.id === this.humanFirmId)?.T_emp ?? this.config.init.starting_T_emp, this.config) : null,
       agreements: summarizeAgreementsFor(world, this.humanFirmId, (id) => this.nameOf(id)),
       lobbyInitiatives: summarizeLobbying(this.config, world),
       shocks,
@@ -480,6 +489,10 @@ export class SinglePlayerGame {
   callsEnabled(): boolean { return !!this.config?.classroom?.forecasts?.enabled; }
   forecasts(): Promise<SeatForecasts> { return getSeatForecasts(this.store, { gameId: this.gameId, userId: "u_1" }); }
   submitForecasts(calls: Record<string, ForecastCall>): Promise<unknown> { return submitForecasts(this.store, () => Date.now(), { gameId: this.gameId, userId: "u_1" }, calls); }
+
+  /** 11-16 (Devin: tick, read, untick was a free report): solo shows the reports the moment research is ticked,
+   *  so the tick IS the purchase — it stands for the round (the form locks the box and the brew carries it). */
+  buyResearch(): void { this.lastInfoBought = true; }
 
   /** Submit the human decision, auto-play the adaptive NPCs, resolve, advance. */
   async play(humanDecision: FirmDecision): Promise<void> {

@@ -3,6 +3,7 @@ import type { BriefingData, RoleBriefing } from "drinkwars-engine";
 import type { GameView } from "../game/controller.js";
 import { Card, Eyebrow } from "./ui.js";
 import { InfoDot } from "./InfoDot.js";
+import { ValueStickCard } from "./ValueStick.js";
 import { AnchoredPopover } from "./AnchoredPopover.js";
 import { Sparkline } from "./Sparkline.js";
 import { SEG_LABEL, fmt } from "../labels.js";
@@ -10,7 +11,7 @@ import { firmColor } from "../lib/teamColors.js";
 import { SEAT_INK, seatColor } from "../lib/seatColors.js";
 
 /** Where a seat's popover can send you for the full picture (a Review tab). */
-export type ReviewLink = "statements" | "operations" | "trends" | "field";
+export type ReviewLink = "statements" | "operations" | "value" | "trends" | "field";
 
 type Role = RoleBriefing["role"];
 const ORDER: Role[] = ["ceo", "cmo", "coo", "cfo"]; // the desks' order (deskMeta)
@@ -98,7 +99,7 @@ function intel(b: RoleBriefing | undefined, view: GameView): Read | null {
   switch (d.role) {
     case "cfo": return {
       facts: [{ label: "Rivals", cells: [{ k: "leverage", v: `~${lev(d.rivalLeverage)}` }], est: true }],
-      verdicts: [d.stretched ? { tone: "bad", text: "Most stretched balance sheet at the table", est: true } : { tone: "good", text: "Above-average balance sheet — room to borrow", est: true }],
+      verdicts: [d.stretched ? { tone: "bad", text: "Leverage well above rivals' — borrowing costs more", est: true } : { tone: "good", text: "Leverage at or below rivals' — room to borrow", est: true }],
     };
     case "cmo": return {
       facts: [{ label: "Next round", cells: d.nextDemand.map((x) => ({ k: segName(x.seg), v: `~${k(x.units)}` })), est: true }],
@@ -107,36 +108,36 @@ function intel(b: RoleBriefing | undefined, view: GameView): Read | null {
         ...(d.drift ? [{ tone: "note" as Tone, text: "Drinkers trending toward quality", est: true }] : []),
       ],
     };
-    case "coo": return { facts: [], verdicts: [d.matureProcess ? { tone: "good", text: "Process paying off — yields above the field" } : { tone: "note", text: "Easy yield left — process spend cuts cost fastest" }] };
+    case "coo": return { facts: [], verdicts: [d.matureProcess ? { tone: "good", text: "Operations spending has paid off; more of it cuts cost more slowly now" } : { tone: "note", text: "Operations spending still cuts cost quickly at this level" }] };
     case "ceo": return d.watch ? {
-      facts: [{ label: "Watch", cells: [{ v: view.names[d.watch] ?? d.watch }, { v: `${d.posture ?? ""}${d.murky ? " · murky read" : ""}` }], est: true }],
-      verdicts: [d.outscaled ? { tone: "bad", text: "Out-scales you — a volume fight is uphill", est: true } : { tone: "note", text: "Even on scale — position, don't out-spend", est: true }],
+      facts: [{ label: "Watch", cells: [{ v: view.names[d.watch] ?? d.watch }, { v: `${d.posture ?? ""}${d.murky ? " · uncertain read" : ""}` }], est: true }],
+      verdicts: [d.outscaled ? { tone: "bad", text: "Has 30%+ more capacity than you", est: true } : { tone: "note", text: "Capacity similar to yours, or smaller", est: true }],
     } : null;
   }
 }
 
 /** The Boardroom: four officers, one glance each, every game (11-09). Under Team roles each officer
  *  also brings a noisy brief (MOD-B05) — rows marked "est." — and the team integrates the reads. */
-export function Boardroom({ view, onOpen }: { view: GameView; onOpen?: (to: ReviewLink) => void }) {
+export function Boardroom({ view, onOpen, researchOn = false }: { view: GameView; onOpen?: (to: ReviewLink) => void; researchOn?: boolean }) {
   const intelOn = view.briefings.length > 0;
   return (
-    <Card>
+    <Card dw="boardroom">
       <div className="flex items-center gap-1.5">
         <Eyebrow>Boardroom</Eyebrow>
         <InfoDot title="The Boardroom" align="right">
           {intelOn
-            ? "Each officer reads the firm from your own results and what the whole market can see. Rows marked est. are that officer's estimate of what you can't see — they can be off. Tap an officer for the numbers."
-            : "Each officer reads the firm from your own results and what the whole market can see. Tap an officer for the numbers behind the read."}
+            ? "Each officer reports on the firm from your own results and what every brewery can see. Rows marked est. are that officer's estimate of what you can't see, and they can be off. Tap an officer to see the numbers."
+            : "Each officer reports on the firm from your own results and what every brewery can see. Tap an officer to see the numbers."}
         </InfoDot>
       </div>
       <div className="grid gap-2">
-        {ORDER.map((role) => <Brief key={role} role={role} b={view.briefings.find((x) => x.role === role)} view={view} onOpen={onOpen} />)}
+        {ORDER.map((role) => <Brief key={role} role={role} b={view.briefings.find((x) => x.role === role)} view={view} onOpen={onOpen} researchOn={researchOn} />)}
       </div>
     </Card>
   );
 }
 
-function Brief({ role, b, view, onOpen }: { role: Role; b?: RoleBriefing; view: GameView; onOpen?: (to: ReviewLink) => void }) {
+function Brief({ role, b, view, onOpen, researchOn }: { role: Role; b?: RoleBriefing; view: GameView; onOpen?: (to: ReviewLink) => void; researchOn?: boolean }) {
   const stage = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const g = glance(role, view);
@@ -174,7 +175,7 @@ function Brief({ role, b, view, onOpen }: { role: Role; b?: RoleBriefing; view: 
             <span className="text-[0.78rem] font-bold uppercase tracking-[0.12em] text-ink">{TOPIC[role]}</span>
             <button type="button" onClick={() => setOpen(false)} className="ml-auto font-mono text-[0.7rem] text-inksoft hover:text-ink" aria-label="Close">✕</button>
           </div>
-          {role === "cmo" && <CmoDetail b={b} view={view} />}
+          {role === "cmo" && <CmoDetail b={b} view={view} researchOn={researchOn} onValue={onOpen ? () => { setOpen(false); onOpen("value"); } : undefined} />}
           {role === "coo" && <CooDetail view={view} />}
           {role === "cfo" && <CfoDetail b={b} view={view} />}
           {role === "ceo" && <CeoDetail b={b} view={view} />}
@@ -212,7 +213,7 @@ function Donut({ sam, som, label }: { sam: number; som: number; label: string })
   );
 }
 
-function CmoDetail({ b, view }: { b?: RoleBriefing; view: GameView }) {
+function CmoDetail({ b, view, onValue, researchOn }: { b?: RoleBriefing; view: GameView; onValue?: () => void; researchOn?: boolean }) {
   const d = b?.data?.role === "cmo" ? b.data : null;
   const cats = view.history[view.history.length - 1]?.own.categories ?? {};
   const s = view.sizing;
@@ -251,6 +252,12 @@ function CmoDetail({ b, view }: { b?: RoleBriefing; view: GameView }) {
         </div>
       ) : <Muted>No open categories.</Muted>}
       {field.length > 0 && (<><H>Shelf prices last round</H><PriceLadders rows={field} /></>)}
+      {/* 11-16: the value stick (U4), compact — what the average shopper would pay, against price and cost */}
+      {view.valueStick?.rows.length ? (<>
+        <H>Value stick · per drink, last quarter</H>
+        <ValueStickCard vs={view.valueStick} compact researchOn={researchOn} />
+        {onValue && <button type="button" onClick={onValue} className="mt-1.5 font-mono text-[0.62rem] font-bold uppercase tracking-wide text-copperdeep hover:underline">Value stick in Review →</button>}
+      </>) : null}
     </div>
   );
 }
@@ -379,7 +386,7 @@ function CeoDetail({ b, view }: { b?: RoleBriefing; view: GameView }) {
   const lo = Math.min(...scores, 0), hi = Math.max(...scores, 0.01), span = hi - lo || 1;
   return (
     <div>
-      {d?.watch && <div className="text-[0.74rem] leading-snug"><span className="text-inksoft">One to watch</span> <b className="text-ink">{view.names[d.watch] ?? d.watch}</b> · {d.posture}{d.murky && <span className="text-faint"> (murky read)</span>}</div>}
+      {d?.watch && <div className="text-[0.74rem] leading-snug"><span className="text-inksoft">One to watch</span> <b className="text-ink">{view.names[d.watch] ?? d.watch}</b> · {d.posture}{d.murky && <span className="text-faint"> (uncertain read)</span>}</div>}
       <H>Standings · scorecard</H>
       {rows.length ? (
         <div className="grid gap-1">

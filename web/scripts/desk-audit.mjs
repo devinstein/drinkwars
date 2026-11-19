@@ -152,11 +152,13 @@ logs.push(`[info] inventory module on: ${invOn} (run_rate ${invOn ? "checked" : 
 // ── (2a) round 1: specialists edit through the form, CEO submits LAST untouched ──
 const seg = Object.keys(v0.standing?.price ?? v0.teamPlan?.composed?.price ?? {})[0];
 const segIdx = 0;
-const E1 = { price: 9.35, invest_B: 23000, beliefs: 2, invest_Q: 37000, invest_water_efficiency: 7000, invest_cap: 15000, invest_T_emp: 13000, debt_draw: 45000, invest_T_inv: 11000 };
+const E1 = { research: false, price: 9.35, invest_B: 23000, beliefs: 2, invest_Q: 37000, invest_water_efficiency: 7000, invest_cap: 15000, invest_T_emp: 13000, debt_draw: 45000, invest_T_inv: 11000 };
 // CMO
 const cmoPriceShown = await typeInto(P.cmo, "price", E1.price, segIdx);
 await setRange(P.cmo, "invest_B", E1.invest_B);
-await clickKey(P.cmo, "buy_info");
+// 11-16: research reports on the last quarter, so round 1 can't buy it — the box is disabled and says when it opens
+const r1Info = await (await handle(P.cmo, "buy_info")).evaluate((e) => ({ disabled: e.disabled, note: e.closest("label")?.parentElement?.textContent ?? "" }));
+ok(r1Info.disabled && /opens from round 2/.test(r1Info.note), "round 1: Buy market research is disabled — it opens from round 2", JSON.stringify(r1Info).slice(0, 160));
 await typeInto(P.cmo, "beliefs", E1.beliefs);
 // COO
 await setRange(P.coo, "invest_Q", E1.invest_Q);
@@ -192,7 +194,7 @@ dlg1.ceo = await submit(P.ceo, "ceo"); // untouched, stale form — the classic 
 logs.push(`[info] CEO r1 dialogs: ${JSON.stringify(dlg1.ceo)}`);
 const expectPlan = (c, E, hire, eq, tag) => {
   const checks = [
-    ["CMO price", near(c.price?.[seg], E.price), c.price?.[seg]], ["CMO brand", c.invest_B === E.invest_B, c.invest_B], ["CMO research", c.buy_info === true, c.buy_info], ["CMO rank call", c.beliefs?.own_rank === E.beliefs, c.beliefs?.own_rank],
+    ["CMO price", near(c.price?.[seg], E.price), c.price?.[seg]], ["CMO brand", c.invest_B === E.invest_B, c.invest_B], ["CMO research", c.buy_info === (E.research ?? true), c.buy_info], ["CMO rank call", c.beliefs?.own_rank === E.beliefs, c.beliefs?.own_rank],
     ["COO quality", c.invest_Q === E.invest_Q, c.invest_Q], ["COO water", c.invest_water_efficiency === E.invest_water_efficiency, c.invest_water_efficiency], ["COO tanks", c.invest_cap === E.invest_cap, c.invest_cap],
     ["CHRO hire", empOn ? (c.hire_employees ?? []).length >= 1 : (c.hire_roles ?? []).includes(hire), JSON.stringify(empOn ? c.hire_employees : c.hire_roles)], ["CHRO employee relations", c.invest_T_emp === E.invest_T_emp, c.invest_T_emp],
     ["CFO debt draw", c.debt_draw === E.debt_draw, c.debt_draw], ["CFO equity ask", c.equity_raise === eq, c.equity_raise], ["CFO investor relations", c.invest_T_inv === E.invest_T_inv, c.invest_T_inv],
@@ -208,7 +210,7 @@ const row1 = dash.panel.find((p) => p.round === 0 && p.firmId === "firm_1") ?? d
 const ev1 = (dash.events.find((e) => e.round === row1?.round)?.events ?? []);
 const eng1 = dash.engagement.find((e) => e.round === row1?.round && e.firmId === "firm_1");
 ok(near(row1?.segments?.[seg]?.price, E1.price), "resolved r1: firm_1 sold at the CMO's price", `${seg} $${row1?.segments?.[seg]?.price}`);
-ok(eng1?.infoPurchased === true && eng1?.predictedRank === E1.beliefs, "resolved r1: research bought + CMO's rank call recorded", JSON.stringify({ info: eng1?.infoPurchased, rank: eng1?.predictedRank }));
+ok(eng1?.infoPurchased === false && eng1?.predictedRank === E1.beliefs, "resolved r1: no research (it opens in round 2) + CMO's rank call recorded", JSON.stringify({ info: eng1?.infoPurchased, rank: eng1?.predictedRank }));
 ok(ev1.some((e) => (empOn ? /^(HIRE|SIGNED): firm_1 /.test(e) : /^HIRE: firm_1 brings on a head brewer/.test(e))), `resolved r1: HIRE event for the CHRO's ${empOn ? `hire (${hiredName1})` : "head brewer"}`, ev1.filter((e) => /firm_1/.test(e)).slice(0, 4).join(" | "));
 const eqEv = ev1.find((e) => /^EQUITY: investors fund only .* firm_1 sought/.test(e));
 ok(!!eqEv && eqEv.includes(`$${ask.toLocaleString("en-US")}`), "resolved r1: equity trimmed to the cap (EQUITY event names the CFO's ask)", eqEv ?? ev1.filter((e) => /EQUITY|firm_1/.test(e)).join(" | ").slice(0, 200));

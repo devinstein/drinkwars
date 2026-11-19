@@ -18,6 +18,7 @@ export {
   // local dev transport (src/transport.ts) — city view, research-gated rival
   // snapshots, shocks, history, the hiring pool, and the Tuning-Board merge.
   deepMerge, generateHiringMarket, projectMarkets, projectMarketSizing, projectFirms, projectResearch, projectShocks, projectHistory,
+  projectValueStick, researchReports, // 11-16 value stick (+ its survey settings)
 } from "drinkwars-engine";
 // DW-039 per-request read cache — the edge transport wraps its store with this
 // (supabase/functions/drinkwars/index.ts); without the re-export Deno fails to

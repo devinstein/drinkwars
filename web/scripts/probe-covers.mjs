@@ -60,12 +60,20 @@ const chro = await joinAs("chro", claimOf("c3"));
 const [ceoT, cfoT, chroT] = [await tok(ceo), await tok(cfo), await tok(chro)];
 
 // ── 1. CFO covers market research (CMO chair empty), submits ──
-const clicked = await cfo.evaluate(() => {
+// 11-16: the research bundle reports on the last quarter, so the form can't buy it in round 1 (box disabled). The cover
+// itself is sent through the API (as ui-audit does) — what this probe tests is that the UI resubmit keeps it.
+const box = await cfo.evaluate(() => {
   const ins = [...document.querySelectorAll("input[type=checkbox]")];
   const el = ins.find((i) => { let n = i; for (let k = 0; k < 4 && n; k++, n = n.parentElement) if (/market research|reveals rival/i.test(n.innerText ?? "")) return true; return false; });
-  if (!el) return false; el.click(); return true;
+  return el ? { disabled: el.disabled } : null;
 });
-if (!clicked) throw new Error("no research checkbox on CFO page");
+if (!box) throw new Error("no research checkbox on CFO page");
+ok(box.disabled === true, "round 1: the research box is disabled (research opens from round 2)", JSON.stringify(box));
+{
+  const cv = await view(cfoT);
+  const slice = { ...(cv.teamPlan.seats.find((x) => x.me).partial), buy_info: true };
+  await fetch(`${API}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: cfoT, decision: slice }) });
+}
 await sleep(300);
 await submitDesk(cfo);
 let v = await view(cfoT);

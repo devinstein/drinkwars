@@ -37,7 +37,9 @@ export { roundIsScored, inContention, rankStandings, compareStanding, PROFITABIL
 export { sanitizeDecision } from "./engine/sanitize.js";
 export { TERM_BOUNDS, clampTerms, PROPOSAL_TTL_ROUNDS } from "./engine/coopetition.js";
 export type { AllianceSummary, AllianceClauseSummary, LobbySummary, MarketSizingView, SizingMarketRow } from "./engine/views.js";
-export { generateHiringMarket } from "./engine/employees.js";
+export { projectValueStick, type ValueStickView, type ValueStickRow, type ValueStickPart, type WtpEstimate, type WtpSurvey } from "./engine/valuestick.js"; // 11-16
+export { generateHiringMarket, marketRate } from "./engine/employees.js";
+export { staffNeedFactor } from "./engine/cost.js";
 export { mergeMemberDecisions, composeTeamDecision, sameLever, seatTouched, DESK_LEVERS, ALL_LEVERS, ROLE_DESK } from "./engine/seats.js";
 export type { Composition } from "./engine/seats.js";
 export type { SeatDesk, SeatPartial } from "./engine/seats.js";

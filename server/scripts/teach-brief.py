@@ -11,7 +11,7 @@ Defaults to the latest resolved round. Reads top to bottom as the debrief runs:
   THE STORY          what each category did (flat out? slack?) and which firms were supply- vs
                      demand-constrained (taught in rounds 1–2, a side note after)
   WHAT MOVED         who changed price / tanks / quality, and what it bought them
-  POSITIONS          margin/can × cans = gross profit, then running costs → operating profit
+  POSITIONS          margin/can × cans = gross profit, then operating costs → operating profit
   WHY SHOPPERS CHOSE the pull behind shopper shares (DW-067 exports only; skipped otherwise)
   TROUBLE            firms under the safety line: why, and the clock they are on
   ASK THE ROOM       three questions, each with → SHOW (the dashboard card to project)
@@ -326,7 +326,7 @@ def analyze(j, r=None):
         short += [f"operating loss {usd(p['ebit'])}"] if p["ebit"] < 0 else [f"coverage {p['coverage']:.1f}×"] if p["coverage"] < 1 else []
         trouble.append(dict(name=nm(fid), npc=fid in npc, why="; ".join(why) or "credit-rationed", short=" · ".join(short) or "credit-rationed", n=n if p["belowSafety"] else 0, acquirable=p["belowSafety"] and n >= ACQUIRABLE,
                             clock=(f"quarter {n} of {RUNWAY}" + (" — acquirable now" if n >= ACQUIRABLE else "")) if p["belowSafety"] else "credit-rationed only",
-                            loss=f"gross profit {usd(p['gross'])} didn't cover {usd(p['gross'] - p['ebit'])} of running costs" if p["ebit"] < 0 else None,
+                            loss=f"gross profit {usd(p['gross'])} didn't cover {usd(p['gross'] - p['ebit'])} of operating costs" if p["ebit"] < 0 else None,
                             coverage=p["coverage"], interest=p["interest"]))
     trouble.sort(key=lambda t: (-t["n"], t["npc"], t["name"]))  # longest clock first; teams before NPCs
     exits = [dict(name=nm(f), word=EXIT_WORD.get(p["status"], "exited")) for f, p in here.items()
@@ -444,8 +444,8 @@ def analyze(j, r=None):
             cands.append((["CEO"], "You're neither the cheapest nor the most premium. Which lane?",
                           f"Margin per can #{m_rank[fid]} of {n} (${per_can(p, p['gross']):.2f}) · cans #{v_rank[fid]} of {n} ({k(sold)})."))
         if p["ebit"] < 0 and p["gross"] > 0:
-            cands.append((["CEO", "CFO"], "Gross profit didn't cover running costs. Which programs earn their keep?",
-                          f"Gross profit {usd(p['gross'])} − running costs {usd(p['gross'] - p['ebit'])} = operating {usd(p['ebit'])}."))
+            cands.append((["CEO", "CFO"], "Gross profit didn't cover operating costs. Which programs earn their keep?",
+                          f"Gross profit {usd(p['gross'])} − operating costs {usd(p['gross'] - p['ebit'])} = operating {usd(p['ebit'])}."))
         if people_on:
             peak = max((h[fid]["T_emp"] for h in back if fid in h), default=0)
             med = rivals(fid, lambda x: x["T_emp"])
@@ -469,7 +469,7 @@ def analyze(j, r=None):
                 ("Cans sold", lambda x: x["totalQSold"], k)]
         if rich:
             rows.append(("Shoppers wanted", wanted, k))
-        rows += [("Gross profit", lambda x: x["gross"], usd), ("Running costs", lambda x: x["gross"] - x["ebit"], usd),
+        rows += [("Gross profit", lambda x: x["gross"], usd), ("Operating costs", lambda x: x["gross"] - x["ebit"], usd),
                  ("Operating profit", lambda x: x["ebit"], usd), ("Cash", lambda x: x["cash"], usd),
                  ("Quality", lambda x: x["Q"], lambda v: f"{v:.0f}"), ("Brand", lambda x: x["B"], lambda v: f"{v:.0f}")]
         if people_on:
@@ -514,7 +514,7 @@ def sections(b):
     if b["moved_note"]:
         s["moved"].append("  " + b["moved_note"])
     s["moved"].append(f"  → SHOW  {C['TANKS']}")
-    s["positions"] = ["", "POSITIONS   margin/can × cans = gross profit;  gross − running costs = operating profit",
+    s["positions"] = ["", "POSITIONS   margin/can × cans = gross profit;  gross − operating costs = operating profit",
                       f"  {'firm':<{W}}{'rank':>4}{'price':>7}{'cost':>6}{'margin':>8}{'cans':>7}{'gross':>8}{'running':>9}{'operating':>10}{'NI':>8}{'cash':>8}"]
     s["positions"] += [f"  {x['name']:<{W}}{x['rank']:>4}{x['price']:>7.2f}{x['cost']:>6.2f}{x['margin']:>8.2f}{k(x['cans']):>7}{usd(x['gross']):>8}{usd(-x['running']):>9}{usd(x['operating']):>10}{usd(x['ni']):>8}{usd(x['cash']):>8}" for x in b["positions"]]
     if b["leaders_line"]:
@@ -589,7 +589,7 @@ def render_talk(b):
     losses = [x for x in b["positions"] if x["operating"] < 0]
     slide("Positions", f"- Season leader: {b['positions'][0]['name']}", f"- {b['leaders_line']}" if b["leaders_line"] else "",
           "- Operating loss: " + ", ".join(f"{x['name']} ({usd(x['operating'])})" for x in losses) if losses else "- Everyone made an operating profit",
-          "  - gross profit didn't cover running costs" if losses else "", f"- Show: {C['MAP_COST']} · then {C['MAP_VOL']}")
+          "  - gross profit didn't cover operating costs" if losses else "", f"- Show: {C['MAP_COST']} · then {C['MAP_VOL']}")
     if b["pull"]:
         pr, lines = b["pull"]["pair"], []
         if pr:

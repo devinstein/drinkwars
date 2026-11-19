@@ -1,0 +1,37 @@
+Drink Wars: one round, desk by desk (video transcript)
+
+1 · What this is
+
+Drink Wars is a strategy game about running a craft brewery. You and your rivals sell to the same shoppers, and every round you make the same kinds of decisions a real brewery makes: what to charge, how much to brew, what to build, and how to pay for it. A round is one quarter of a year. This video walks through one round from start to finish, one screen at a time. It shows what each panel tells you and where each decision goes. The decisions are yours.
+
+2 · The screen
+
+Across the top is the instrument bar: the round you are in, your cash, your capacity, and your rank. Cash is what the brewery holds right now. Capacity is how many drinks your tanks can brew this quarter. Rank appears once the first round has run. Below it are three tabs. Decide is where you set this round's plan. Review is where you read what happened. The third is the map, which becomes City and Globe when the game has more than one market. On the right of Decide is the Boardroom: four officers who sum up the firm for you. The CEO covers the standings. The CMO covers demand. The COO covers operations and cost. The CFO covers the money. Each one has a details link that shows the numbers behind the summary. In a class game, each officer is a seat on your team.
+
+3 · Read the market
+
+Start with the CMO, who reports how many shoppers the market has this quarter, by category. Lagers and Light and Craft Premium are the two categories you start with, and a new category can open later in the season. Shoppers in each category weigh price, quality and brand differently. After the first round, the CMO also shows your share, and the prices every rival charged the round before.
+
+4 · Marketing desk: price
+
+The production lines are where prices go: one price per drink in each category. Under each box is what one drink earns over what it costs to brew. Price is the lever that moves fastest. A change shows up the same quarter.
+
+5 · Operations desk: tanks and the brewery
+
+Tanks set how many drinks you can brew. An order in the Tanks card adds tanks that arrive next quarter, not this one. The card shows how many drinks an order adds, what your tanks will be next quarter, and what an idle tank still costs, because upkeep is due whether a tank brews or not. Tanks also wear down a little every quarter. The allocation bar splits this quarter's tanks between the categories. Below that is Build the Brewery. Spending here builds stocks that last: recipe quality, brand, brewing operations, which lowers your cost per drink, and your standing with staff, investors and regulators. A stock grows over the quarters after you spend, and it wears down without upkeep. These are slow levers. What you spend this round shows up later.
+
+6 · Finance desk and the commit rail
+
+The Financing card is money in and money out. You can borrow from the bank, sell shares to investors, repay debt, or pay a dividend. Each has a limit. Those limits are on the right, in the commit rail, under Cash and credit. It lists what you have to work with this quarter: cash on hand, what the bank will lend, what investors will put in, and the emergency overdraft. The overdraft is a last resort at a penalty rate. A firm that ends a quarter past it closes. Under that is projected cash: what your plan leaves before a single drink sells. Then come the costs that are paid from sales whatever you sell. Operating costs cover overhead, tank upkeep, rent and staff. Interest is its own line: the rate this quarter on the debt you will hold after this round's loan or repayment. Break-even is how many drinks cover those costs at your prices.
+
+7 · Run the round
+
+When the plan is set, you press Brew and Resolve. If the plan spends more than your cash and financing can cover, a check appears first. It lists exactly what the round would cut, so you can change the plan or send it as it is. Your rivals decide at the same time, and none of you sees the others' plans until the round runs. In a class game, each seat submits its own desk. After you submit, the rail confirms what was sent and which teammates are in. The round runs when your instructor locks it.
+
+8 · Read the results
+
+The results page comes first: where you finished, your net income, your cash, and what hit the market this round. Each number traces back to a choice, yours or a rival's, or to the market itself. Review holds the detail. Statements and Ratios has the income statement, the balance sheet and the cash flow. Revenue minus the cost of the drinks you sold is gross profit. Subtract operating costs to get operating income, then interest. The Value stick tab shows, for each category, your price and your cost per drink, straight from your books. Above them sits what shoppers would pay, called willingness to pay. No shopper tells you that number, and it differs from one shopper to the next, so it shows as a question mark until you buy market research. The survey then estimates it for a typical shopper and gives the range for most shoppers. Below your cost is what your suppliers and staff need, called willingness to sell. The firm keeps the gap between price and cost. The Dispatch is the round's news: market events, rivals' public moves, and notices only your firm sees.
+
+9 · Close
+
+That is one round. Every round after it works the same way: read, decide, brew, review. To try it before class, open Drink Wars and choose Learn the game. It runs this same round as a practice game, with a guide you can close at any time.

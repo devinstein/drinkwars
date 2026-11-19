@@ -31,9 +31,9 @@ export interface FoundingChoices {
 }
 
 const DIFFICULTIES: { id: Difficulty; label: string; blurb: string }[] = [
-  { id: "relaxed", label: "Relaxed", blurb: "A gentler field — room to find your footing." },
-  { id: "competitive", label: "Competitive", blurb: "A balanced field that pushes back." },
-  { id: "cutthroat", label: "Cutthroat", blurb: "Aggressive rivals that crowd whatever's working." },
+  { id: "relaxed", label: "Relaxed", blurb: "Softer rivals, so you have room to learn." },
+  { id: "competitive", label: "Competitive", blurb: "Standard rivals that compete and adapt." },
+  { id: "cutthroat", label: "Cutthroat", blurb: "Aggressive rivals that chase whatever is working." },
 ];
 
 const FOUNDING_HIRE_CAP = 3;
@@ -63,7 +63,10 @@ export function FirmBuilder({ onStart, busy }: { onStart: (c: FoundingChoices) =
   const candidates = empOn ? generateHiringMarket(cfg, cfg.game.seed, 0) : [];
   const roleLabel = (id: string) => cfg.modules?.employees?.roles.find((r) => r.id === id)?.label ?? id;
   const districtLabel = (id?: string) => districts.find((d) => d.id === id)?.label ?? id ?? "—";
-  const startCash = cfg.init.starting_cash;
+  // 11-18: with uneven starts on, the player's brewery (firm_1, the first firm) opens as an incumbent on its profile's
+  // cash (engine init.ts startProfile). The review promised the base $460k: $46k more than the game then opened with.
+  const asym = cfg.modules?.asymmetricStarts;
+  const startCash = cfg.init.starting_cash * (asym?.enabled && asym.incumbent_count > 0 ? asym.incumbent.cash : 1);
   const typeOf = (id: string) => facTypes.find((t) => t.id === id);
   const facCost = facPick.reduce((s, f) => s + (typeOf(f.type)?.base_cost ?? 0), 0);
   const hireCost = hirePick.reduce((s, id) => s + (candidates.find((c) => c.id === id)?.salary ?? 0), 0);
@@ -108,7 +111,7 @@ export function FirmBuilder({ onStart, busy }: { onStart: (c: FoundingChoices) =
       </div>
 
       <div className="rounded-2xl border border-line bg-panel p-4">
-        <div className="mb-2.5 font-mono text-[0.55rem] uppercase tracking-[0.1em] text-inksoft">How your sites read on the map</div>
+        <div className="mb-2.5 font-mono text-[0.55rem] uppercase tracking-[0.1em] text-inksoft">How your sites look on the map</div>
         <div className="flex justify-around">
           {([["brewery_large", "brew"], ["brewpub", "mix"], ["taproom", "sell"]] as [string, string][]).map(([t, lbl]) => (
             <div key={t} className="flex flex-col items-center gap-1.5">
@@ -188,7 +191,7 @@ export function FirmBuilder({ onStart, busy }: { onStart: (c: FoundingChoices) =
                       );
                     })}
                   </div>
-                  <div className="mt-2 text-[0.7rem] text-inksoft">Your colour and mark are how every rival reads you on the map all season.</div>
+                  <div className="mt-2 text-[0.7rem] text-inksoft">Rivals see your colour and mark on the map all season.</div>
                 </div>
               </div>
               <div className="lg:border-l lg:border-line lg:pl-6">{Preview}</div>
@@ -314,7 +317,7 @@ export function FirmBuilder({ onStart, busy }: { onStart: (c: FoundingChoices) =
                 {facOn && <Row label="Starting facilities" value={facPick.length ? facPick.map((f) => `${typeOf(f.type)?.label ?? f.type} · ${districtLabel(f.district)}`).join(", ") : "None"} />}
                 {empOn && <Row label="Founding team" value={hirePick.length ? `${hirePick.length} hired` : "None"} />}
                 {hasFounding && <Row label="Opening cash after founding" value={fmt.money(remaining)} strong />}
-                <p className="mt-2 text-[0.74rem] leading-snug text-inksoft">Your founding picks are queued into round one — you can still adjust them before you brew.</p>
+                <p className="mt-2 text-[0.74rem] leading-snug text-inksoft">Your founding picks go into round 1. You can still change them before you brew.</p>
               </div>
             </div>
           )}
@@ -326,10 +329,10 @@ export function FirmBuilder({ onStart, busy }: { onStart: (c: FoundingChoices) =
           {step < steps.length - 1 ? (
             <Button variant="go" onClick={() => setStep((s) => s + 1)} disabled={remaining < 0}>{remaining < 0 ? "Over budget" : "Next →"}</Button>
           ) : (
-            <Button variant="go" onClick={finish} disabled={busy || remaining < 0} className="px-6 py-3 text-base">{busy ? "Pouring…" : `Found ${display.split(" ")[0]} →`}</Button>
+            <Button variant="go" onClick={finish} disabled={busy || remaining < 0} className="px-6 py-3 text-base">{busy ? "Pouring…" : `Found ${display} →`}</Button>
           )}
         </div>
-        <p className="mt-4 font-mono text-[0.7rem] tracking-wide text-inksoft">Single-player · 16 rounds · seven rival breweries</p>
+        <p className="mt-4 font-mono text-[0.7rem] tracking-wide text-inksoft">Single-player · seven rival breweries</p>
       </div>
 
       {/* City View popup — choose WHERE the selected facility opens (district = rent/output/brand) */}
@@ -340,7 +343,7 @@ export function FirmBuilder({ onStart, busy }: { onStart: (c: FoundingChoices) =
               <FacilityChip type={siteFor} color={color} size={24} mine />
               <div className="min-w-0">
                 <div className="display text-lg leading-tight text-ink">Where should your {typeOf(siteFor)?.label ?? "facility"} open?</div>
-                <div className="text-[0.72rem] leading-snug text-inksoft">Rent, output and brand draw all follow the district — pick the spot that fits the build.</div>
+                <div className="text-[0.72rem] leading-snug text-inksoft">Each district sets the rent, output and brand draw. Pick the spot that fits this build.</div>
               </div>
               <span className="flex-1" />
               <button type="button" onClick={() => setSiteFor(null)} className="shrink-0 rounded-md border border-line2 px-3 py-1.5 text-sm text-inksoft transition-colors hover:border-line hover:text-ink">Cancel</button>

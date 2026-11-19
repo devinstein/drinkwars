@@ -6,7 +6,7 @@
  * the passcode-gated create / lock / resolve endpoints.
  */
 import type { AllianceSummary, Config, ConfigOverride, FirmDecision, FirmId, FirmRoundResult, FirmState, LobbySummary, RoleBriefing, ScheduledShock, SegmentId } from "drinkwars-engine";
-import { inventoryEnabled, DESK_LEVERS, ROLE_DESK } from "drinkwars-engine";
+import { inventoryEnabled, staffNeedFactor, DESK_LEVERS, ROLE_DESK } from "drinkwars-engine";
 
 /** The instructor gamemaster payload (GET /instructor/games/:id/timeline). */
 export interface GameTimeline {
@@ -71,6 +71,7 @@ export interface RawView {
   styles?: Record<string, { color: string | null; emblem: string | null }>; // DW-051 house colour/mark per firm
   markets?: GameView["markets"]; // MOD-B01 per-team city view (projected server-side)
   sizing?: GameView["sizing"]; // DW-084 TAM / SAM / SOM (projected server-side)
+  valueStick?: GameView["valueStick"]; // 11-16 value stick (projected server-side)
   research?: GameView["research"]; // 11-07: the three research reports (server-gated on the team's purchase)
   seats?: GameView["seats"]; // team firms: this firm's C-suite seats + submit status
   teamPlan?: TeamPlan; // team firms: each seat's slice + the composed decision (same-firm only)
@@ -323,6 +324,8 @@ export class StudentClient {
       fx: v.fx ?? {},
       markets: v.markets ?? [], // MOD-B01 per-team city view (projected server-side)
       sizing: v.sizing ?? null, // DW-084: absent on an older server ⇒ the card stays hidden
+      valueStick: v.valueStick ?? null, // 11-16: absent on an older server ⇒ hidden
+      staffNeed: this.config?.costs?.wts && v.own ? staffNeedFactor((v.own as FirmState).T_emp, this.config) : null, // 11-18: from the game's own config
       research: v.research ?? null,
       seats: v.seats ?? [], // team firms: C-suite seats + submit status
       teamPlan: v.teamPlan ?? null, // team firms: the live plan review surface

@@ -118,9 +118,9 @@ const COPY: Record<string, ShockCopy> = {
     },
   },
   co2: {
-    title: "CO₂ & packaging squeeze",
+    title: "CO₂ & packaging shortage",
     summary: { announced: "a packaging and CO₂ shortage is coming", hits: "no brewery can run at full capacity this round" },
-    headline: { announced: "A packaging squeeze is coming", hits: "The CO₂ squeeze is here" },
+    headline: { announced: "A packaging shortage is coming", hits: "The CO₂ shortage is here" },
     subline: { announced: "Expected {eta}. Cans, CO₂ and kegs will run short, so tanks can't run full.", hits: "Cans, CO₂ and kegs ran short. Every brewery runs below capacity this round." },
     seats: {
       hits: {
@@ -133,8 +133,8 @@ const COPY: Record<string, ShockCopy> = {
       },
       announced: {
         ceo: L("Capacity is cut {eta}.", "Every brewery runs below capacity {eta}. New tanks are cut by the same share. Brewing operations and Taproom community soften the cut, one round after you fund them."),
-        cfo: L("A low-volume round is coming.", "Volume drops {eta} while fixed costs stay the same. Tanks cost upkeep even when the squeeze keeps them idle."),
-        coo: L("Capacity is cut {eta}, new tanks included.", "Tanks ordered now start brewing next round, and the squeeze cuts them by the same share. Brewing operations softens the cut, one round after you fund it."),
+        cfo: L("A low-volume round is coming.", "Volume drops {eta} while fixed costs stay the same. Tanks cost upkeep even when the shortage leaves them idle."),
+        coo: L("Capacity is cut {eta}, new tanks included.", "Tanks ordered now start brewing next round, and the shortage cuts them by the same share. Brewing operations softens the cut, one round after you fund it."),
         cmo: L("Every brewery has less to sell {eta}.", "Supply falls {eta} for every brewery. A higher price earns more per drink but turns some shoppers away."),
         chro: L("Taproom community softens capacity shocks.", "Taproom community helps soften the capacity cut {eta}. Spending on it counts one round after you make it."),
         member: L("A capacity cut hits {eta}.", "Every brewery runs below capacity {eta}. Brewing operations and Taproom community soften the cut, one round after you fund them. New tanks are cut too."),

@@ -17,7 +17,7 @@ const focusOn = (id: string): string => (unsetSeg(id) ? "" : `, now focused on $
 const SHOCK_LABEL: Record<string, string> = {
   water: "Water shortage",
   harvest: "Harvest failure",
-  co2: "CO₂ & packaging squeeze",
+  co2: "CO₂ & packaging shortage",
   demand_slump: "Recession",
   craft_wave: "Festival season",
   health_shift: "Health & wellness shift",
@@ -45,7 +45,7 @@ const LOYALTY_LOST = (quarters?: string, pct?: string): string =>
 const CLAUSE_COND: Record<string, string> = {
   water_shock: "a water shortage hit",
   harvest_shock: "a harvest failure hit",
-  capacity_shock: "a CO₂ and packaging squeeze hit",
+  capacity_shock: "a CO₂ and packaging shortage hit",
   partner_distress: "a partner got into financial trouble",
   segment_emerges: "a new category opened",
 };
@@ -181,7 +181,7 @@ const RULES: Rule[] = [
   {
     test: /^EXIT→INVEST:\s*(.+?)\s+buys\s+([\d.]+)% of\s+(.+?)\s+at V=/i,
     kind: "market", title: "A brewery exits to invest",
-    body: (_r, m) => `${m[1]} left the market and used its cash to buy ${m[2]}% of ${m[3]}.`,
+    body: (_r, m) => `${m[1]} left the market and used the cash to buy ${m[2]}% of ${m[3]}.`,
   },
   {
     test: /^EXIT→INVEST failed \(no valid target\);\s*(.+?)\s+banked\s+(\$[\d,]+)/i,
@@ -214,9 +214,17 @@ const RULES: Rule[] = [
       : `${m[1]} repaid ${m[2]} of the ${m[3]} planned. A repayment can't take cash below ${m[4]}, the bank's minimum, so the rest is still owed.`,
   },
   {
-    test: /^BLOCKED:\s*(.+?)\s+cannot pay for its whole plan\s+—\s+(\$[\d,]+)\s+of spending against\s+(\$[\d,]+)\s+of cash and financing((?:\s+after\s+\$[\d,]+\s+set aside for running costs)?)(?:;\s*([^.]+))?\.\s*Cut:\s*(.+)$/i,
+    // 11-18: the engine prints a shortfall as "$-86,626"; the pattern used to miss it and the raw line reached students
+    test: /^BLOCKED:\s*(.+?)\s+cannot pay for its whole plan\s+—\s+(\$[\d,]+)\s+of spending against\s+(\$-?[\d,]+)\s+of cash and financing((?:\s+after\s+\$[\d,]+\s+set aside for running costs)?)(?:;\s*([^.]+))?\.\s*Cut:\s*(.+)$/i,
     kind: "shock", title: "Orders cut",
-    body: (_r, m) => `${m[1]} couldn't pay for the whole plan. It called for ${m[2]} of spending, but cash and financing came to ${m[3]}${m[4] ?? ""}${m[5] ? ` (${m[5]})` : ""}. Cut to fit: ${m[6]}.`,
+    body: (_r, m) => {
+      const after = (m[4] ?? "").replace("running costs", "operating costs");
+      const short = m[3].startsWith("$-");
+      const funds = short
+        ? `cash and financing came up ${m[3].replace("$-", "$")} short of even this quarter's operating costs${after ? ` (${after.trim().replace(/^after\s+/, "").replace(/\s+set aside for operating costs$/, "")})` : ""}`
+        : `cash and financing came to ${m[3]}${after}`;
+      return `${m[1]} couldn't pay for the whole plan. It called for ${m[2]} of spending, but ${funds}${m[5] ? ` (${m[5]})` : ""}. Cut to fit: ${m[6]}.`;
+    },
   },
   {
     test: /^OVERDRAFT EXHAUSTED:\s*(.+?)\s+is\s+(\$[\d,]+)\s+short and the bank's emergency line stops at\s+(\$[\d,]+)/i,
@@ -236,14 +244,17 @@ const RULES: Rule[] = [
   {
     test: /^EQUITY MARKET CLOSED:\s*no investor will fund\s+(.+?)'s\s+(\$[\d,]+) raise/i,
     kind: "shock", title: "Equity raise refused",
-    body: (_r, m) => `No investor would fund ${m[1]}'s ${m[2]} raise. Losses have pushed its valuation (what investors think the firm is worth) to zero or below, so nothing was raised.`,
+    body: (raw, m) => /not counting the cash/i.test(raw)
+      ? `No investor would fund ${m[1]}'s ${m[2]} raise. Not counting the cash it already holds, investors think the business is worth nothing, so nothing was raised.`
+      : `No investor would fund ${m[1]}'s ${m[2]} raise. Losses have pushed its valuation (what investors think the firm is worth) to zero or below, so nothing was raised.`,
   },
   {
     test: /^EQUITY:\s*investors fund only\s+(\$[\d,]+)\s+of the\s+(\$[\d,]+)\s+(.+?)\s+sought/i,
     kind: "info", title: "Equity raise trimmed",
     body: (raw, m) => {
-      const cap = raw.match(/(\d+)% of its valuation/)?.[1];
-      return `Investors funded only ${m[1]} of the ${m[2]} ${m[3]} asked for. In one round, investors buy ${cap ? `at most ${cap}%` : "only part"} of what a firm is worth.`;
+      const cap = raw.match(/(\d+)% of its (?:valuation|business value)/)?.[1];
+      const biz = /business value/i.test(raw); // 11-18: the cap leaves out cash the firm already holds
+      return `Investors funded only ${m[1]} of the ${m[2]} ${m[3]} asked for. In one round, investors buy ${cap ? `at most ${cap}%` : "only part"} of what a ${biz ? "business is worth, not counting its cash" : "firm is worth"}.`;
     },
   },
   {
@@ -312,14 +323,14 @@ const RULES: Rule[] = [
   {
     test: /^MARKET CONDUCT:\s*(.+?)\s+drew a consumer-protection penalty\s*—\s*(.+)$/i,
     kind: "regulatory", title: "Fined for price gouging",
-    body: (_r, m) => `Regulators fined ${m[1]} for price gouging. It held a large share of the market and priced far above its costs${/thin quality/i.test(m[2]) ? ", with below-average quality" : ""}. Its brand took a public hit too. Good standing with distributors and regulators, plus a strong reputation, shrinks this penalty.`,
+    body: (_r, m) => `Regulators fined ${m[1]} for price gouging: a large share of the market at prices far above cost${/thin quality/i.test(m[2]) ? ", with below-average quality" : ""}. The brand took a public hit too. Good standing with distributors and regulators, plus a strong reputation, shrinks this penalty.`,
   },
   {
     test: /^DISTRESS DUMPING:\s*(.+?)'s collapse depresses\s+(\w+)/i,
     kind: "shock", title: "Leftover stock dumped",
     body: (raw, m) => {
       const n = raw.match(/for (\d+) round/)?.[1];
-      return `${m[1]} went under, and its leftover stock is being sold off cheap. That weakens ${seg(m[2])} sales for every other brewery ${n ? `for ${n} round${n === "1" ? "" : "s"}` : "for a while"}.`;
+      return `${m[1]} went under, and the leftover stock is being sold off cheap. That weakens ${seg(m[2])} sales for every other brewery ${n ? `for ${n} round${n === "1" ? "" : "s"}` : "for a while"}.`;
     },
   },
   {
@@ -530,11 +541,15 @@ function toSecondPerson(body: string, youName: string): string {
  *  eventFeed types the bad ones "shock", and the market card printed its generic "A market disruption this
  *  round" over them; "Loan cut" (info) never showed at all. */
 export const FIRM_NEWS = new Set(["Loan refused", "Loan cut", "Repayment held back", "Orders cut", "Build blocked", "Hire fell through", "Overdraft ran out", "Emergency overdraft", "Purchase fell through", "Equity raise refused", "Equity raise trimmed", "Talent poached"]);
+/** 11-16 (Devin's review): one brewery's people and PR news. Tagged "shock" in the feed, they read as market shocks
+ *  on the results page ("Key hire leaves · A market shock hit this round"). Yours belong under "What hit your firm";
+ *  a rival's stay in the Dispatch. */
+export const HOUSE_NEWS = new Set(["Key hire leaves", "Employee quits", "Brand controversy", "Talent poached", "Talent raid", "Pact broken", "Pact ended"]);
 export function roundNews(events: string[], youName = "", opts: FeedOpts = {}): { market: GameEvent[]; firm: GameEvent[] } {
   const all = parseEvents(events, youName, opts);
   return {
-    market: all.filter((e) => (e.kind === "shock" || e.kind === "market") && !FIRM_NEWS.has(e.title)),
-    firm: all.filter((e) => e.mine && FIRM_NEWS.has(e.title)),
+    market: all.filter((e) => (e.kind === "shock" || e.kind === "market") && !FIRM_NEWS.has(e.title) && !HOUSE_NEWS.has(e.title)),
+    firm: all.filter((e) => e.mine && (FIRM_NEWS.has(e.title) || HOUSE_NEWS.has(e.title))),
   };
 }
 

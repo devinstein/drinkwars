@@ -458,7 +458,7 @@ export function DuPont({ you, result, field }: { you: FirmSnapshot; result: Firm
         <FactorRow label="= Return on equity" you={roe} youText={roe != null ? fmt.pct1(roe) : "equity ≤ 0"} field={fRoe} fieldText={fRoe != null ? fmt.pct1(fRoe) : "—"} negative={(roe ?? 0) < 0} />
       </div>
       <Cap>
-        {you?.name ?? "You"} against the field median (the tick). Rivals publish no statements, so the field&apos;s margin and turnover are unknown. Their equity multiplier comes from reported debt and equity, and their return on equity only from rivals that carry debt.
+        {you?.name ?? "You"} against the field median (the tick). Rivals publish no statements, so their margin and turnover are unknown. Their equity multiplier comes from reported debt and equity, and their return on equity only from rivals that carry debt.
       </Cap>
     </div>
   );
@@ -585,9 +585,9 @@ export function CostOfCapitalCockpit({ coc, finance }: { coc: FirmRoundResult["c
           Debt costs <span className={`font-semibold ${rationed ? "text-brick" : "text-copperdeep"}`}>{fmt.pct1(rd)}</span>/qtr
           <span className="text-inksoft"> ≈ {apr(rd)} a year — risk-free {fmt.pct1(rf)} plus a spread of {fmt.pct1(Math.max(0, rd - rf))}</span>
           <InfoDot title="What sets the price of your debt">
-            <span className="block"><b>Leverage</b> is debt ÷ equity. It climbs when you borrow — and also when you lose money, because a loss shrinks equity even if you never touch the loan. Past {levRef.toFixed(1)}× the bank starts charging more, and at {levCap.toFixed(1)}× it stops lending: a draw that would breach the cap is cut down to what fits.</span>
-            <span className="mt-1.5 block"><b>Coverage</b> is operating income ÷ interest — how many times over this quarter's profit covers the interest bill. It is the number your lender actually watches. Below {covThr.toFixed(1)}× you are in breach of covenant; below 1× the business cannot pay its lenders out of operations at all, which is what puts you under the safety line.</span>
-            <span className="mt-1.5 block"><b>Interest rate</b> is what you were charged this quarter, and it is not fixed. It starts at a base rate of {fmt.pct1(rf)} plus a {fmt.pct1(baseSpread)} risk charge, about {apr(healthy)} a year. The risk charge grows as leverage passes {levRef.toFixed(1)}× and {graduated ? `as coverage thins below ${covThr.toFixed(1)}×, reaching its full ${fmt.pct1(penalty)} only at zero operating income` : `jumps by ${fmt.pct1(penalty)} the moment coverage falls under ${covThr.toFixed(1)}×`}. Investor relations narrow it a little. So the interest line can move in a quarter when your debt did not — that is the bank repricing you, and the cure is to repay or to earn your cover back.</span>
+            <span className="block"><b>Leverage</b> is debt ÷ equity. It climbs when you borrow. It also climbs when you lose money, because a loss shrinks equity even if you never touch the loan. Past {levRef.toFixed(1)}× the bank starts charging more, and at {levCap.toFixed(1)}× it stops lending: a draw that would breach the cap is cut down to what fits.</span>
+            <span className="mt-1.5 block"><b>Coverage</b> is operating income ÷ interest: how many times this quarter's profit covers the interest bill. It is the number your lender actually watches. Below {covThr.toFixed(1)}× you are in breach of covenant. Below 1× the business cannot pay its lenders out of operations at all, which puts you under the safety line.</span>
+            <span className="mt-1.5 block"><b>Interest rate</b> is what you were charged this quarter, and it is not fixed. It starts at a base rate of {fmt.pct1(rf)} plus a {fmt.pct1(baseSpread)} risk charge, about {apr(healthy)} a year. The risk charge grows as leverage passes {levRef.toFixed(1)}× and {graduated ? `as coverage thins below ${covThr.toFixed(1)}×, reaching its full ${fmt.pct1(penalty)} only at zero operating income` : `jumps by ${fmt.pct1(penalty)} the moment coverage falls under ${covThr.toFixed(1)}×`}. Investor relations narrow it a little. So the interest line can move in a quarter when your debt did not. That is the bank repricing your loan. Repaying debt or rebuilding your coverage brings it back down.</span>
           </InfoDot>
         </span>
         {rationed && <Tag tone="brick">Credit rationed</Tag>}

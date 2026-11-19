@@ -163,7 +163,7 @@ export function Join({ onJoined, onBack }: { onJoined: (c: StudentClient) => voi
       <div className="rise">
         <div className="eyebrow">Join a game · {code.trim().toUpperCase()}</div>
         <h1 className="display mt-2 text-4xl font-semibold">{preSeat ? "Name your brewery" : joiningFounded ? "Take your seat" : isTeam ? "Found your team" : "Name your brewery"}</h1>
-        <div className="mt-1 text-sm text-inksoft">{preSeat ? `You're seated as CEO of “${preSeat.team}” — give the firm its real name (teammates see it) and pick your house colour & mark.` : joiningFounded ? "Join your teammates' firm — pick your C-suite seat; each seat owns one desk of the decision." : "Your colour & mark are how the class reads you on the board all season."}</div>
+        <div className="mt-1 text-sm text-inksoft">{preSeat ? `You're seated as CEO of “${preSeat.team}” — give the firm its real name (teammates see it) and pick your house colour & mark.` : joiningFounded ? "Join your teammates' firm — pick your C-suite seat; each seat owns one desk of the decision." : "Your colour & mark are how the class identifies you on the board all season."}</div>
 
         {/* game context from the peek */}
         <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-line2 bg-panel px-3 py-2 text-[0.72rem] text-inksoft">
@@ -247,7 +247,7 @@ export function Join({ onJoined, onBack }: { onJoined: (c: StudentClient) => voi
           </div>
           <div className="flex items-center gap-3 rounded-xl border border-line2 bg-panel p-3">
             <span className="grid h-11 w-11 flex-none place-items-center rounded-[12px]" style={{ background: color, border: "2px solid #fff", boxShadow: `0 0 0 1px ${color}` }}><Emblem id={emblem} size={26} color="#fff" /></span>
-            <div className="min-w-0"><div className="display truncate text-lg font-extrabold uppercase leading-none text-ink">{display}</div><div className="text-[0.72rem] text-inksoft">how your sites read on the board</div></div>
+            <div className="min-w-0"><div className="display truncate text-lg font-extrabold uppercase leading-none text-ink">{display}</div><div className="text-[0.72rem] text-inksoft">how your sites look on the board</div></div>
             <span className="flex-1" />
             <FacilityChip type="brewery_large" color={color} size={28} mine />
             <FacilityChip type="taproom" color={color} size={28} mine />

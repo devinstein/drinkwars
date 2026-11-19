@@ -18,7 +18,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { loadConfig } from "drinkwars-engine/node";
-import { deepMerge, generateHiringMarket, projectMarkets, projectMarketSizing, projectFirms, projectResearch, projectShocks, projectHistory, roleBriefings, summarizeAgreementsFor, summarizeLobbying } from "drinkwars-engine";
+import { deepMerge, generateHiringMarket, projectMarkets, projectMarketSizing, projectFirms, projectResearch, projectShocks, projectHistory, projectValueStick, researchReports, roleBriefings, summarizeAgreementsFor, summarizeLobbying } from "drinkwars-engine";
 import type { FirmDecision } from "drinkwars-engine";
 import { createClient } from "@supabase/supabase-js";
 import { GameOrchestrator, InMemoryAdapter, buildInstructorDashboard, createSupabaseAdapter, dashboardToCsv, randomBreweryNames, renameFirms, visibleEvents, pactParties, withRequestCache, type StorageAdapter } from "./index.js";
@@ -185,6 +185,7 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
   let lobbyInitiatives: ReturnType<typeof summarizeLobbying> = [];
   let markets: ReturnType<typeof projectMarkets> = []; // MOD-B01 per-team city view (same projection as single-player)
   let sizing: ReturnType<typeof projectMarketSizing> = null; // DW-084 TAM / SAM / SOM
+  let valueStick: ReturnType<typeof projectValueStick> = null; // 11-16 value stick (own numbers + the round's public logit)
   let firms: ReturnType<typeof projectFirms> = []; // public snapshots; rivals' private fields redacted unless this team bought market research
   let research: ReturnType<typeof projectResearch> = null; // 11-07: the three research reports — only for a team whose plan buys them
   let shocks: ReturnType<typeof projectShocks> = [];
@@ -210,6 +211,9 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
       if (config) markets = projectMarkets(ws.state, config, own.id, pub.round, lastFull?.result.firm_results ?? [], nameOf);
       // DW-084: TAM / SAM / SOM from the last resolved round — market totals only, no rival's own numbers.
       if (config) sizing = projectMarketSizing(config, own.id, lastFull?.result ?? null, (id) => config.modules?.geography?.markets?.find((m: { id: string }) => m.id === id)?.label ?? id);
+      // 11-16: WTP is a survey estimate — sent only when this firm's plan buys market research (the true value never leaves)
+      const rep = config ? researchReports(config) : null;
+      if (config) valueStick = projectValueStick(config, own.id, allResults, ws.state.firms.find((f) => f.id === own.id), rep && decision?.decision?.buy_info ? { seed: ws.state.seed, round: ws.state.round, sd: rep.survey_sd } : null);
       if (config) firms = projectFirms(ws.state, config, own.id, lastFull?.result.firm_results ?? [], !!decision?.decision?.buy_info, nameOf);
       if (config && decision?.decision?.buy_info) research = projectResearch(allResults, ws.state, config, own.id, nameOf);
       shocks = projectShocks(ws.state, pub.round, config ?? undefined, own.id);
@@ -223,6 +227,7 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
     lobbyInitiatives,
     markets,
     sizing,
+    valueStick,
     firms,
     shocks,
     history,

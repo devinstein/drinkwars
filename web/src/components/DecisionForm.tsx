@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Config, Facility, FirmDecision, PrPlayType, SegmentId } from "drinkwars-engine";
-import { DESK_LEVERS, ROLE_DESK, applyAffordabilityGuard, creditReason, equityCapacity, equityIssueCost, financingGrant, overdraftLimit, runningCostEstimate } from "drinkwars-engine";
+import { DESK_LEVERS, ROLE_DESK, applyAffordabilityGuard, creditReason, equityCapacity, equityIssueCost, firmValuation, financingGrant, overdraftLimit, runningCostEstimate } from "drinkwars-engine";
 import type { GameView } from "../game/controller.js";
+import { hasResolved } from "../lib/resolved.js";
 import { keepUntouchedMarkets, mergeDecision, type CityActions } from "../game/cityActions.js";
 import { SEG_LABEL, SEG_TAG, STOCK_LABEL, fmt, toDisplayMoney, toEngineMoney, marketName } from "../labels.js";
 import { holdLever, leverDesk, leverText, planDiffs, researchBuyer, teamOutcome, unholdLever, type PlanDiff } from "../lib/reconcile.js";
 import { listOf, readSellOuts, tankFit } from "../lib/sizing.js";
 import { holdOrder, tankOutlook } from "../lib/tanks.js";
 import { guardConfig, runningCostsAsGuard } from "../lib/moneyCheck.js";
+import { receiptLines } from "../lib/planSummary.js";
+import type { CockpitDesk } from "../deskMeta.js";
 import { Button, Card, Eyebrow, Row, Tag } from "./ui.js";
 import { AllocationBar } from "./AllocationBar.js";
 import { CategoryCoin } from "./CategoryIcons.js";
@@ -23,8 +26,8 @@ import { FacilityDetail } from "./FacilityDetail.js";
 
 const PR_PLAYS: { id: PrPlayType; label: string; description: string }[] = [
   { id: "festival", label: "Festival sponsorship", description: "A steady brand lift at a community event." },
-  { id: "collab", label: "Brewer collaboration", description: "A buzzier co-release — a bigger spike." },
-  { id: "viral", label: "Viral label drop", description: "Highest-upside splash — the biggest spike." },
+  { id: "collab", label: "Brewer collaboration", description: "A co-release with more buzz and a bigger spike." },
+  { id: "viral", label: "Viral label drop", description: "The biggest splash and the biggest spike." },
 ];
 const PR_LABEL: Record<PrPlayType, string> = { festival: "Festival sponsorship", collab: "Brewer collab", viral: "Viral label drop" };
 const GOOD_LABEL: Record<string, string> = { regional_marketing: "Regional marketing fund", water_commons: "Water-commons pool", quality_certification: "Quality certification" };
@@ -74,7 +77,11 @@ export function DecisionForm({
   cockpit,
   aside,
   baseline,
+  sent = null,
 }: {
+  /** 11-16 (post-mortems): set once this seat's submit has landed in a class game (null in solo, where Brew runs the
+   *  round at once) — `at` is when, if known. The rail then shows a receipt: what will run, any cut or cap, who's in. */
+  sent?: { at: number | null } | null;
   /** Design pass 2b: the form as this round started — a lever moved off it glows amber (a teammate's number
    *  that will lock glows red, yours green, as before). */
   baseline?: FirmDecision | null;
@@ -203,6 +210,8 @@ export function DecisionForm({
   // DW-077: every lever where this form and the plan that will lock disagree — who decides, what
   // locks, what was typed — from the engine's own merge (reconcile.planDiffs). Team firms only.
   const team = !!(seatRole && view.teamPlan && standing);
+  // 11-16: the research bundle reports on the last resolved quarter; before round 1 runs there is none, so it can't be bought.
+  const noReportYet = view.researchReports && !hasResolved(view);
   const diffs = team ? planDiffs(view, seatRole, effective, standing) : { rows: [] as PlanDiff[], follow: 0 };
   const diffMap = new Map(diffs.rows.map((r) => [String(r.field), r]));
   const diffOf = (f: keyof FirmDecision) => diffMap.get(String(f));
@@ -430,8 +439,8 @@ export function DecisionForm({
   const prEvent: GameEvent | null = prModal
     ? {
         id: "pr-plan", kind: "opportunity", title: "Plan a PR play",
-        body: <>A tactical brand play spikes your buzz this round, then fades fast — tactical, not lasting. Costs {fmt.money(prCost)}.</>,
-        detail: "Each angle costs the same; bigger splashes spike harder.",
+        body: <>A tactical brand play raises your buzz this round, then fades fast. Costs {fmt.money(prCost)}.</>,
+        detail: "Each angle costs the same. Bigger splashes raise buzz more.",
         choices: [
           ...PR_PLAYS.map((p) => ({ id: p.id, label: p.label, description: p.description, tone: "solid" as const })),
           { id: "none", label: "Skip — no play this round", tone: "ghost" as const },
@@ -444,6 +453,12 @@ export function DecisionForm({
   // function, same beginning-of-round state as the resolver, so the forecast is the result.
   const equityCap = view.finance ? equityCapacity(view.own, { finance: view.finance }) : Infinity;
   const equityGated = Number.isFinite(equityCap);
+  const bizBasis = view.finance?.equity_gate?.basis === "business"; // 11-18: cash already held doesn't count toward the cap
+  // 11-18 (dilution is the real price of equity): new investors buy in at what the firm is worth now, so a raise of R
+  // sells R ÷ (worth + R) of it. Shown with the raise; the fee above is only the bankers' cut.
+  const worth = view.finance ? firmValuation(view.own, { finance: view.finance } as never, !!view.finance.equity_gate?.skip_founding_round) : 0;
+  const raiseNow = Math.min(d.equity_raise ?? 0, equityGated ? equityCap : Infinity);
+  const soldShare = worth > 0 && raiseNow > 0 ? raiseNow / (worth + raiseNow) : null;
   // Equity lands NET of the issue fee (the engine's own rate; it rises as investor relations fall) —
   // the dial used to count the gross raise and overstate cash by the fee.
   const issueFee = view.finance ? equityIssueCost((view.own as { T_inv?: number }).T_inv ?? 0, { finance: view.finance } as never) : 0;
@@ -484,9 +499,9 @@ export function DecisionForm({
     const financeIn = grant ? grant.draw + grant.equityNet : p.debt_draw + Math.min(p.equity_raise, equityCap) * (1 - issueFee);
     const netFinancing = financeIn - financeOut;
     const projectedCash = cash - investSpend - infoSpend - brewSpend - moduleSpend + netFinancing + instrDraws; // before this round's sales
-    return { brewSpend, instrDraws, buildCost, maintCost, facSpend, empSpend, moduleSpend, investSpend, infoSpend, netFinancing, projectedCash, grant };
+    return { brewSpend, instrDraws, buildCost, maintCost, facSpend, empSpend, peopleSpend: empSpend + hireSpend, moduleSpend, investSpend, infoSpend, netFinancing, projectedCash, grant };
   };
-  const { brewSpend, instrDraws, buildCost, maintCost, facSpend, empSpend, moduleSpend, investSpend, infoSpend, netFinancing, projectedCash, grant: planGrant } = costsOf(proj);
+  const { brewSpend, instrDraws, buildCost, maintCost, facSpend, empSpend, peopleSpend, moduleSpend, investSpend, infoSpend, netFinancing, projectedCash, grant: planGrant } = costsOf(proj);
   const myCash = proj === effective ? projectedCash : costsOf(effective).projectedCash; // this form alone
   // DW-083 item 2: with the affordability guard on, the engine cuts what the plan can't pay for — run
   // the same function on the same state, so the rail can name the cuts before anyone submits.
@@ -567,7 +582,7 @@ export function DecisionForm({
               {view.finance && (
                 <ul className="mt-0.5 grid gap-px text-[0.68rem] leading-snug" style={{ color: "var(--color-faint)" }}>
                   <li>· Bank debt ≤ {view.finance.max_leverage}× equity{cfl ? (cfStart != null && cfStart > roundNo ? ` · from round ${cfStart}, also ≤ ${cfl.ebitda_multiple}× a year of operating cash flow (EBITDA)` : ` and ≤ ${cfl.ebitda_multiple}× a year of operating cash flow (EBITDA)`) : ""}</li>
-                  {equityGated && <li>· Investors put in ≤ {(view.finance.equity_gate?.max_fraction_of_valuation ?? 0.5) === 0.5 ? "half" : fmt.pct(view.finance.equity_gate?.max_fraction_of_valuation ?? 0.5)} of what the firm is worth</li>}
+                  {equityGated && <li>· Investors put in ≤ {(view.finance.equity_gate?.max_fraction_of_valuation ?? 0.5) === 0.5 ? "half" : fmt.pct(view.finance.equity_gate?.max_fraction_of_valuation ?? 0.5)} of what the {bizBasis ? "business is worth, not counting its cash" : "firm is worth"}</li>}
                   {odCfg && <li>· The overdraft is a last resort at a penalty rate. Past it, the firm closes.</li>}
                 </ul>
               )}
@@ -581,7 +596,10 @@ export function DecisionForm({
             <div className="mt-3 grid gap-1 pt-2.5" style={{ borderTop: "1px solid var(--color-line)" }}>
               {invOn && brewSpend > 0 && <CommitRow label="Brewing" value={`−${fmt.money(brewSpend)}`} />}
               {investSpend + infoSpend > 0 && <CommitRow label="Investment & research" value={`−${fmt.money(investSpend + infoSpend)}`} />}
-              {moduleSpend > 0 && <CommitRow label="Plays, programs & entry" value={`−${fmt.money(moduleSpend)}`} />}
+              {/* 11-18: payroll and builds were lumped under "Plays, programs & entry" ($47,829 of founding salaries read as a PR play) */}
+              {peopleSpend > 0 && <CommitRow label="New hires, raises & offers" value={`−${fmt.money(peopleSpend)}`} />}
+              {facSpend > 0 && <CommitRow label="Sites: builds & upkeep" value={`−${fmt.money(facSpend)}`} />}
+              {moduleSpend - peopleSpend - facSpend > 0.5 && <CommitRow label="Plays, programs & entry" value={`−${fmt.money(moduleSpend - peopleSpend - facSpend)}`} />}
               {instrDraws > 0 && <CommitRow label="Alt. financing" value={`+${fmt.money(instrDraws)}`} tone="hop" />}
               {netFinancing !== 0 && <CommitRow label="Net financing" value={fmt.signed(netFinancing)} tone={netFinancing < 0 ? "brick" : "hop"} />}
               {/* 11-06 (Devin): the asked-for number never reads as the number that arrives */}
@@ -591,10 +609,20 @@ export function DecisionForm({
             </div>
             {running && running.total > 0 && (
               <div data-testid="running-costs" className="mt-2.5 grid gap-1 pt-2" style={{ borderTop: "1px solid var(--color-line)" }}>
-                <CommitRow label="Running costs, paid from sales" value={`−${fmt.money(running.total)}`} />
+                {/* 11-16 (post-mortems): interest on its own line — a team that borrowed to grow asked to see what the debt costs before submitting */}
+                <div className="font-mono text-[0.58rem] uppercase tracking-[0.1em]" style={{ color: "var(--color-inksoft)" }}>Paid from sales, whatever you sell</div>
+                <CommitRow label="Operating costs" value={`−${fmt.money(running.total - running.interest)}`} />
                 <div className="text-[0.68rem] leading-snug" style={{ color: "var(--color-faint)" }}>
-                  Overhead, upkeep{running.payroll > 0 ? ", payroll" : ""}{running.facilities > 0 ? ", rent" : ""}{running.interest > 0 ? ", interest" : ""} — due whatever you sell
+                  Overhead, upkeep{running.regulatory > 0 ? ", compliance" : ""}{running.payroll > 0 ? ", payroll" : ""}{running.facilities > 0 ? ", rent" : ""}
                 </div>
+                {running.interest >= 0.5 && (
+                  <div data-testid="interest-row" className="grid gap-1">
+                    <CommitRow label="Interest" value={`−${fmt.money(running.interest)}`} />
+                    <div className="text-[0.68rem] leading-snug" style={{ color: "var(--color-faint)" }}>
+                      {fmt.pct1(running.rate)} this quarter on {fmt.money(running.debtAfter)} of debt{planGrant && planGrant.draw >= 0.5 ? (planGrant.repay >= 0.5 ? ", after this round's loan and repayment" : ", including this round's loan") : planGrant && planGrant.repay >= 0.5 ? ", after this round's repayment" : ""}
+                    </div>
+                  </div>
+                )}
                 {breakEvenDrinks != null
                   ? <CommitRow label="Break-even" value={`≈ ${fmt.int(breakEvenDrinks)} drinks`} />
                   : <div className="text-[0.72rem] leading-snug" style={{ color: "var(--color-inksoft)" }}>{invOn ? "Set a price to see the break-even." : "Prices under unit cost: every drink sold adds to the loss."}</div>}
@@ -647,11 +675,34 @@ export function DecisionForm({
           ))}
     </>
   );
+  // 11-16 (post-mortems: "unsure a decision went through, or what it did"): after a landed submit, one plain receipt
+  // by Submit — sent and when, what the round will run for this desk (every desk for the CEO or a one-student firm),
+  // any cut or cap, and which teammates are in.
+  const showReceipt = !!sent && !unsent;
+  const receiptDesk = (team ? ROLE_DESK[seatRole ?? ""] ?? "all" : "all") as CockpitDesk;
+  const runsPlan = guard && guard.cuts.length > 0 ? guard.decision : proj;
+  const receiptMoves = showReceipt ? receiptLines(view, runsPlan, receiptDesk) : [];
+  const receiptCaps = showReceipt ? [
+    ...(guard?.cuts ?? []).map((x) => (x.kept >= 0.5 ? `${x.label} ${fmt.money(x.asked)} → ${fmt.money(x.kept)}` : `${x.label} (${fmt.money(x.asked)}) dropped`)),
+    ...(planGrant && planGrant.requestedDraw - planGrant.draw >= 0.5 ? [`the bank lends ${fmt.money(planGrant.draw)} of ${fmt.money(planGrant.requestedDraw)} asked`] : []),
+    ...(planGrant && planGrant.equityAsked - planGrant.equityGross >= 0.5 ? [`investors put in ${fmt.money(planGrant.equityGross)} of ${fmt.money(planGrant.equityAsked)} asked`] : []),
+  ] : [];
+  const mates = team ? (view.teamPlan?.seats ?? []).filter((x) => !x.me) : [];
+  const matesOut = mates.filter((x) => !x.submitted);
+  const sentTime = sent?.at ? new Date(sent.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
+  const receipt = showReceipt ? (
+    <div data-dw="sent-receipt" role="status" className="mb-2 grid gap-1 rounded-lg px-3 py-2 text-[0.72rem] leading-snug" style={{ background: "color-mix(in srgb, var(--color-hop) 10%, var(--color-panel))", border: "1px solid color-mix(in srgb, var(--color-hop) 45%, transparent)", color: "var(--color-ink)" }}>
+      <div className="font-semibold"><span aria-hidden style={{ color: "var(--color-hop)" }}>✓ </span>Sent{sentTime ? ` at ${sentTime}` : ""}. It runs when the round locks. Until then, you can change anything and update.</div>
+      <div><span style={{ color: "var(--color-inksoft)" }}>{receiptDesk === "all" ? (team ? "The team's plan" : "Your plan") : "Your desk on the team's plan"}:</span> {receiptMoves.length ? receiptMoves.join(" · ") : "no orders on this desk this round"}</div>
+      {receiptCaps.length > 0 && <div style={{ color: "var(--color-brick)" }}>When it runs: {receiptCaps.join("; ")}.</div>}
+      {mates.length > 0 && <div><span style={{ color: "var(--color-inksoft)" }}>Teammates in:</span> {mates.length - matesOut.length} of {mates.length}{matesOut.length ? ` · not yet: ${matesOut.map((x) => `${x.name}${x.role ? ` (${x.role.toUpperCase()})` : ""}`).join(", ")}` : ""}</div>}
+    </div>
+  ) : null;
   const railWarnings = (
     <>
-            {guard && guard.cuts.length > 0 ? (
+            {guard && guard.cuts.length > 0 ? (showReceipt ? null :
               <div data-testid="guard-cuts" className="mb-3 rounded-lg px-3 py-2 text-[0.72rem] leading-snug" style={{ background: "var(--wire-redbg)", border: "1px solid color-mix(in srgb, var(--color-brick) 50%, transparent)", color: "var(--color-brick)" }}>
-                Cash + financing{guard.reserve >= 0.5 ? ` (after ${fmt.money(guard.reserve)} for running costs)` : ""} cover <b className="tnum">{fmt.money(guard.sources)}</b> of <b className="tnum">{fmt.money(guard.committed + guard.orders + guard.payouts + guard.cuts.reduce((a, x) => a + x.asked - x.kept, 0))}</b>{planGrant && planGrant.requestedDraw - planGrant.draw >= 0.5 ? ` · bank lends ${fmt.money(planGrant.draw)} of ${fmt.money(planGrant.requestedDraw)} asked` : ""}. Unless trimmed, the round cuts: {guard.cuts.map((x) => (x.kept >= 0.5 ? `${x.label} → ${fmt.money(x.kept)}` : `${x.label} (${fmt.money(x.asked)})`)).join(", ")}.
+                Cash + financing{guard.reserve >= 0.5 ? ` (after ${fmt.money(guard.reserve)} for operating costs${running && running.interest >= 0.5 ? `, incl. ${fmt.money(running.interest)} interest` : ""})` : ""} cover <b className="tnum">{fmt.money(guard.sources)}</b> of <b className="tnum">{fmt.money(guard.committed + guard.orders + guard.payouts + guard.cuts.reduce((a, x) => a + x.asked - x.kept, 0))}</b>{planGrant && planGrant.requestedDraw - planGrant.draw >= 0.5 ? ` · bank lends ${fmt.money(planGrant.draw)} of ${fmt.money(planGrant.requestedDraw)} asked` : ""}. Unless trimmed, the round cuts: {guard.cuts.map((x) => (x.kept >= 0.5 ? `${x.label} → ${fmt.money(x.kept)}` : `${x.label} (${fmt.money(x.asked)})`)).join(", ")}.
               </div>
             ) : overcommit && (
               <div className="mb-3 rounded-lg px-3 py-2 text-[0.72rem] leading-snug" style={{ background: "var(--wire-redbg)", border: "1px solid color-mix(in srgb, var(--color-brick) 50%, transparent)", color: "var(--color-brick)" }}>Spending &gt; cash + financing. Sales must cover the gap and running costs — {belowZeroCopy}.</div>
@@ -667,7 +718,7 @@ export function DecisionForm({
       {detailEmp != null && (() => {
         const emp = employees.find((x) => x.id === detailEmp);
         return emp ? (
-          <EmployeeDetail employee={emp} role={empRoles.find((r) => r.id === emp.role)} roleLabel={roleLabel(emp.role)} cfg={mods?.employees} raiseValue={eraises[emp.id]}
+          <EmployeeDetail employee={emp} role={empRoles.find((r) => r.id === emp.role)} roleLabel={roleLabel(emp.role)} cfg={mods?.employees} needFactor={view.staffNeed} raiseValue={eraises[emp.id]}
             onRaise={(s) => { setRaise(emp.id, s); setDetailEmp(null); }} onFire={() => toggleFireEmp(emp.id)} firing={efiring.has(emp.id)} onClose={() => setDetailEmp(null)} />
         ) : null;
       })()}
@@ -699,7 +750,7 @@ export function DecisionForm({
         <div className="grid min-w-0 content-start gap-4">
         {/* Pricing — design pass 2: one "production line" per category (Control Room Glass). Each line reads its
             share last round and, with prices public (or research bought), where the field priced it. */}
-        <Card className={deskCls("commercial")}>
+        <Card className={deskCls("commercial")} dw="prices-card">
           <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3">
             <Eyebrow>Production lines · pricing</Eyebrow>
             <span className="tnum text-[0.72rem] text-inksoft">Unit cost ~{fmt.price(view.unitCostEst)}</span>
@@ -741,7 +792,7 @@ export function DecisionForm({
         </Card>
 
         {/* Capacity + presence */}
-        <Card className={deskCls("operations")}>
+        <Card className={deskCls("operations")} dw="tanks-card">
           <Eyebrow>Tanks &amp; Allocation</Eyebrow>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
@@ -776,12 +827,12 @@ export function DecisionForm({
                     {/* 11-07 readability pass: label → value rows instead of sentences. */}
                     <KV k="Price">{fmt.price(perUnit)} per unit · one unit brews one drink a quarter</KV>
                     {mineCut && tAsked
-                      ? <div className="text-brick" data-testid="tank-cut">Your cash and credit cover only <b>{fmt.money(tankCut!.kept)}</b> of this order{guard && guard.reserve >= 0.5 ? ", once running costs are set aside" : ""}. You get <b>+{fmt.int(t.added)}</b> units {when}, not +{fmt.int(tAsked.added)}.</div>
+                      ? <div className="text-brick" data-testid="tank-cut">Your cash and credit cover only <b>{fmt.money(tankCut!.kept)}</b> of this order{guard && guard.reserve >= 0.5 ? ", once operating costs are set aside" : ""}. You get <b>+{fmt.int(t.added)}</b> units {when}, not +{fmt.int(tAsked.added)}.</div>
                       : <KV k="This order buys">+{fmt.int(t.added)} units, brewing from {when}</KV>}
                     {tankCut && !mineCut && <div className="text-brick" data-testid="tank-cut">The team's tank order ({fmt.money(tankCut.asked)}) is more than cash and credit cover, so it is cut to {fmt.money(tankCut.kept)}: +{fmt.int(tankOutlook(view.own, cc, tankCut.kept).added)} units {when}, not +{fmt.int(tankOutlook(view.own, cc, tankCut.asked).added)}.</div>}
                     <KV k="Wear-out">−{fmt.int(t.wear)} units a quarter ({Math.round(cc.depreciation * 100)}%) · an order of {fmt.money(holdLevel)} keeps you level</KV>
                     <KV k="Capacity">
-                      {fmt.int(t.capThis)} now{t.landNow >= 0.5 && <span className="text-inksoft"> (incl. {fmt.int(t.landNow)} landing)</span>}
+                      {fmt.int(t.capThis)} now{t.landNow >= 0.5 && <span className="text-inksoft"> (incl. {fmt.int(t.landNow)} arriving)</span>}
                       {cc.lag >= 1 && <> → <span className={net < 0 ? "text-brick" : ""}>{fmt.int(t.capNext)}</span> next<span className={net < 0 ? "text-brick" : "text-hop"}> ({net >= 0 ? "+" : "−"}{fmt.int(Math.abs(net))})</span></>}
                     </KV>
                     <KV k="Upkeep">{fmt.price(cc.fixed_cost_per_unit)} per unit each quarter, used or idle</KV>
@@ -801,7 +852,7 @@ export function DecisionForm({
                           Last quarter you used <b className="text-ink">{fmt.pct(Math.min(1, util))}</b> of your tanks{so.turned < 0.5
                             ? <>; everyone who picked you was served.</>
                             : fit.covers && t.landNow >= 0.5
-                            ? <> and turned away <b className="text-brick">{fmt.int(so.turned)}</b> shoppers who picked you; the {fmt.int(t.landNow)} units landing this quarter already cover that.</>
+                            ? <> and turned away <b className="text-brick">{fmt.int(so.turned)}</b> shoppers who picked you; the {fmt.int(t.landNow)} units arriving this quarter already cover that.</>
                             : so.shiftable >= 0.5 && so.short.length && so.spare.length
                               ? <> and turned away <b className="text-brick">{fmt.int(so.turned)}</b> shoppers who picked you in {listOf(so.short)}, while {listOf(so.spare)} had room for {fmt.int(so.shiftable)} more. {so.shiftable >= 0.5 * so.turned ? <>Shift capacity before adding tanks.</> : <>Shifting capacity closes about {fmt.int(so.shiftable)} of it; the rest takes more tanks or a higher price.</>}</>
                               : <> and turned away <b className="text-brick">{fmt.int(so.turned)}</b> shoppers who picked you.</>}
@@ -857,8 +908,10 @@ export function DecisionForm({
 
         {/* Investments — each stock slider carries its owning desk, so a focused cockpit
             shows only its own capital calls (brand→CMO, quality/process→COO, etc.). */}
-        <Card className={desk === "all" || INVEST_FIELDS.some((f) => f.desk === desk) ? "" : "hidden"}>
+        <Card className={desk === "all" || INVEST_FIELDS.some((f) => f.desk === desk) ? "" : "hidden"} dw="build-card">
           <Eyebrow>Build the Brewery</Eyebrow>
+          {/* 11-18 break-it pass: a one-off-looking $207k on one slider repeated every quarter and closed the firm by round 4 */}
+          <div className="-mt-1 mb-2 text-[0.7rem] leading-snug text-faint">↻ Each amount is spent this quarter and again every quarter until you change it. What you build shows up a quarter later.</div>
           <div className="grid gap-3 sm:grid-cols-2">
             {INVEST_FIELDS.map((f) => (
               <div key={f.key} className={deskCls(f.desk)}>
@@ -875,7 +928,7 @@ export function DecisionForm({
         </Card>
 
         {/* Financing */}
-        <Card className={deskCls("finance")}>
+        <Card className={deskCls("finance")} dw="financing-card">
           <Eyebrow>Financing</Eyebrow>
           <div className="mb-2 flex flex-wrap gap-x-4 gap-y-0.5 text-[0.72rem] text-inksoft tnum">
             <span>debt {fmt.money(view.own.debt)}</span>
@@ -885,7 +938,7 @@ export function DecisionForm({
               <InfoDot title="Debt-to-equity (leverage)">
                 Total debt ÷ book equity, where equity is the capital paid in plus the profit you have kept (retained earnings). {equity <= 0 ? <>Your equity is {fmt.money(equity)}, so the ratio has no meaning: losses have used up the owners' stake and the firm runs on what it owes.</> : <>At {leverage.toFixed(2)}× you owe {fmt.money(view.own.debt)} against {fmt.money(equity)} of equity.</>}
                 {view.finance && <> Lenders start charging more once you pass <b>{view.finance.leverage_ref.toFixed(1)}×</b>, and will not lend at all beyond <b>{view.finance.max_leverage.toFixed(1)}×</b>.</>}
-                {" "}Above <b>{(view.scoring?.healthy_leverage ?? 1.5).toFixed(1)}×</b> the figure turns red: your scorecard reads the balance sheet as stretched. Raising equity or repaying debt lowers it; a loss lowers equity and so raises it even if you borrow nothing.
+                {" "}Above <b>{(view.scoring?.healthy_leverage ?? 1.5).toFixed(1)}×</b> the figure turns red: your scorecard counts the balance sheet as stretched. Raising equity or repaying debt lowers it. A loss lowers equity, so it raises the ratio even if you borrow nothing.
               </InfoDot>
             </span>
             {lastRate != null && <span>borrowing rate {(lastRate * 100).toFixed(1)}%</span>}
@@ -920,8 +973,11 @@ export function DecisionForm({
                 })()}
                 {f.key === "equity_raise" && equityGated && (
                   equityCap < 1
-                    ? <div className="text-[0.66rem] leading-snug text-brick">No investor will buy in: losses have taken the firm's value to zero.</div>
-                    : <div className={`text-[0.66rem] leading-snug tnum ${d.equity_raise > equityCap ? "text-brick" : "text-inksoft"}`}>Investors will fund up to <b>{fmt.money(equityCap)}</b> this quarter ({Math.round((view.finance?.equity_gate?.max_fraction_of_valuation ?? 0) * 100)}% of what the firm is worth){d.equity_raise > equityCap ? ". Only that much will be raised." : "."}</div>
+                    ? <div className="text-[0.66rem] leading-snug text-brick">{bizBasis ? "No investor will buy in: not counting its cash, the business is worth nothing to them." : "No investor will buy in: losses have taken the firm's value to zero."}</div>
+                    : <div className={`text-[0.66rem] leading-snug tnum ${d.equity_raise > equityCap ? "text-brick" : "text-inksoft"}`}>Investors will fund up to <b>{fmt.money(equityCap)}</b> this quarter ({Math.round((view.finance?.equity_gate?.max_fraction_of_valuation ?? 0) * 100)}% of what the {bizBasis ? "business is worth, not counting its cash" : "firm is worth"}){d.equity_raise > equityCap ? ". Only that much will be raised." : "."}</div>
+                )}
+                {f.key === "equity_raise" && d.equity_raise > 0 && soldShare != null && (
+                  <div className="text-[0.66rem] leading-snug tnum text-inksoft">This sells about <b>{fmt.pct(soldShare)}</b> of the brewery to new investors. The current owners keep the rest.</div>
                 )}
               </div>
             ))}
@@ -930,7 +986,7 @@ export function DecisionForm({
             <div className="mt-3 border-t border-line pt-3">
               <div className="flex items-center gap-1.5">
                 <span className="text-sm font-semibold">Alternative financing</span>
-                <InfoDot title="Beyond plain debt">A convertible note is cheap cash now — but if you can't repay at maturity it converts into ownership (dilution). Revenue financing takes a slice of every round's sales until you've paid back {((fiCfg?.rbf.multiple ?? 1.3)).toFixed(1)}× what you drew — easy when sales dip, pricey when you boom.</InfoDot>
+                <InfoDot title="Beyond plain debt">A convertible note is cheap cash now. If you can't repay it at maturity, it converts into ownership (dilution). Revenue financing takes a share of every round's sales until you've paid back {((fiCfg?.rbf.multiple ?? 1.3)).toFixed(1)}× what you drew. Payments are easy when sales dip and costly when sales boom.</InfoDot>
               </div>
               <div className="mt-1 grid gap-3 sm:grid-cols-2">
                 <div>
@@ -1090,7 +1146,7 @@ export function DecisionForm({
             <div className="mb-2 flex items-center gap-2">
               <Eyebrow>Team</Eyebrow>
               <InfoDot title="Your team" align="right">
-                Hire named people from the talent market. Each raises one of your stocks by their skill — but only while they're satisfied. Pay below market or hit hard times and morale slips; at zero they walk, and rivals poach the unhappy.{mods?.employees?.loyalty ? ` Quarters served with good morale build loyalty: a loyal veteran contributes up to +${Math.round(mods.employees.loyalty.cap * 100)}% more and is harder to poach — and all of it walks out the door with them.` : " A raise buys loyalty."}
+                Hire named people from the talent market. Each raises one of your stocks by their skill, but only while they're satisfied. Pay below what they need or hit hard times and morale drops.{view.staffNeed != null ? " What they need is the market rate: less when your Taproom community is strong, more when it falls below where it started." : ""} At zero morale they quit, and rivals poach unhappy staff.{mods?.employees?.loyalty ? ` Quarters served with good morale build loyalty: a loyal veteran contributes up to +${Math.round(mods.employees.loyalty.cap * 100)}% more and is harder to poach. All of it is lost if they leave.` : " A raise buys loyalty."}
               </InfoDot>
             </div>
 
@@ -1122,7 +1178,7 @@ export function DecisionForm({
                           </span>
                         )}
                         {mods?.employees && (
-                          <span className="tnum" style={{ color: poachRisk > 0.03 ? "var(--color-brick)" : undefined }} title="Chance a rival lures them away when this round resolves: base × (1 − morale), shielded by loyalty">
+                          <span className="tnum" style={{ color: poachRisk > 0.03 ? "var(--color-brick)" : undefined }} title="Chance a rival lures them away when this round resolves: base × (1 − morale), lowered by loyalty">
                             poach risk {e.tenure_rounds >= 1 ? `${(poachRisk * 100).toFixed(1)}%` : "—"}
                           </span>
                         )}
@@ -1190,7 +1246,7 @@ export function DecisionForm({
               <div className="mb-1 flex items-center gap-1.5 text-[0.6rem] uppercase tracking-[0.12em] text-inksoft">
                 <span>Raid rival talent</span>
                 <InfoDot title="Poaching" align="right">
-                  Scout a rival from their <b>dossier</b> — click their brewery in Field &amp; Intel (or on the map). With <b>market research</b> bought this round you'll see their crew's pay and morale and can make an offer. Beat their current pay to lure them over; the unhappier they are and the bigger your raise, the likelier they jump — a successful poach costs a one-time signing premium on top of the new salary.
+                  Scout a rival from their <b>dossier</b> — click their brewery in Field &amp; Intel (or on the map). With <b>market research</b> bought this round you'll see their crew's pay and morale and can make an offer. Beat their current pay to lure them over. The unhappier they are and the bigger your raise, the likelier they are to switch. A successful poach costs a one-time signing premium on top of the new salary.
                 </InfoDot>
               </div>
               {poaches.length > 0 ? (
@@ -1224,7 +1280,7 @@ export function DecisionForm({
           <Card className={deskCls("commercial")}>
             <div className="flex items-center gap-1.5">
               <Eyebrow>Markets</Eyebrow>
-              <InfoDot title="Geographic strategy">Your capacity is split across the regions you run — entering a market trades home presence for reach. Regions have different tastes; your brand carries at a discount abroad. Export markets add tariffs &amp; currency swings.</InfoDot>
+              <InfoDot title="Geographic strategy">Your capacity is split across the regions you run, so entering a market trades home presence for reach. Regions have different tastes, and your brand counts for less abroad. Export markets add tariffs &amp; currency swings.</InfoDot>
             </div>
             <div className="grid gap-3 sm:grid-cols-[260px_1fr]">
               <div className="rounded-md border border-line bg-paper2/30 p-1">
@@ -1340,7 +1396,7 @@ export function DecisionForm({
               <div className={`mt-3 border-t border-line pt-3 ${deskCls("operations")}`}>
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm font-semibold">Vertical moves</span>
-                  <InfoDot title="Own your supply chain">Buying upstream cuts what each barrel costs to make; buying distribution cuts your regulatory drag — but visible vertical control draws antitrust attention. Benefits switch on after the integration period.</InfoDot>
+                  <InfoDot title="Own your supply chain">Buying upstream cuts what each barrel costs to make. Buying distribution cuts your regulatory drag, but visible vertical control draws antitrust attention. Benefits start after the integration period.</InfoDot>
                 </div>
                 <div className="mt-1 grid gap-2">
                   {vertAssets.map((a) => {
@@ -1375,7 +1431,7 @@ export function DecisionForm({
               <div className={`mt-3 border-t border-line pt-3 ${deskCls("people")}`}>
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm font-semibold">Key people</span>
-                  <InfoDot title="The talent market">Each role is yours to fill — a rival hiring the same role doesn't take it from you, and it doesn't matter who submits first. A hire lands when the round resolves, as long as you can cover the signing bonus plus the first salary; if you can't, the round's news says so. A hire boosts a capability the day they start and takes it with them if they leave: each round some chance they move on to another job, which a strong crew culture (employee trust) makes rarer. Any seat on your team can request a hire. You can see who staffs which rivals in a brewery's dossier.</InfoDot>
+                  <InfoDot title="The talent market">Each role is yours to fill. A rival hiring the same role doesn't take it from you, and it doesn't matter who submits first. A hire starts when the round resolves, if you can cover the signing bonus plus the first salary. If you can't, the round's news says so. A hire boosts a capability from their first day and takes it with them if they leave. Each round there is some chance they leave for another job; a strong crew culture (employee trust) makes that less likely. Any seat on your team can request a hire. A brewery's dossier shows who works for each rival.</InfoDot>
                 </div>
                 <div className="mb-1.5 text-[0.66rem] leading-snug text-inksoft">
                   Retention this round: <span className={retentionTone}>{retentionLabel}</span> — driven by your {STOCK_LABEL.T_emp.toLowerCase()}.
@@ -1417,7 +1473,7 @@ export function DecisionForm({
               <div className={`mt-3 border-t border-line pt-3 ${deskCls("strategy")}`}>
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm font-semibold">Acquisitions</span>
-                  <InfoDot title="Buying a rival">A bid only lands on a rival in real financial distress (struggling for {maMinDistress}+ rounds), and only at or above a fair-value floor. If it lands you absorb part of their capacity and brand — and all of their debt. Buy market research to see each rival's fair value.</InfoDot>
+                  <InfoDot title="Buying a rival">A bid only succeeds against a rival in real financial distress (struggling for {maMinDistress}+ rounds), and only at or above a fair-value floor. If it succeeds, you absorb part of their capacity and brand, and all of their debt. Buy market research to see each rival's fair value.</InfoDot>
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {rivals.map((r) => {
@@ -1476,7 +1532,7 @@ export function DecisionForm({
               <div className={`mt-3 border-t border-line pt-3 ${deskCls("strategy")}`}>
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm font-semibold">Lobbying</span>
-                  <InfoDot title="Non-market strategy">Spend to push an industry regulation that suits your position — quality standards reward quality leaders, ad limits hurt brand-heavy rivals, craft promotion grows the premium category. Rivals can counter-lobby to bleed your progress. Heavy <i>offensive</i> lobbying risks an investigation fine, softened by your distributor/regulator standing.</InfoDot>
+                  <InfoDot title="Non-market strategy">Spend to push an industry regulation that suits your position. Quality standards reward quality leaders, ad limits hurt brand-heavy rivals, and craft promotion grows the premium category. Rivals can counter-lobby to reduce your progress. Heavy <i>offensive</i> lobbying risks an investigation fine, softened by your distributor/regulator standing.</InfoDot>
                 </div>
                 <div className="mt-1 flex items-center justify-between">
                   <span className="text-[0.72rem] text-inksoft">Lobbying budget {lobTargeted ? "" : "— pick a target below"}</span>
@@ -1518,7 +1574,7 @@ export function DecisionForm({
           <Card className={deskCls("strategy")}>
             <div className="flex items-center gap-1.5">
               <Eyebrow>Alliances</Eyebrow>
-              <InfoDot title="Coopetition">Form a pact with a rival — pool brand, coordinate capacity, or share supply. The governance form is the real choice: a handshake costs trust to break, a formal contract costs cash but supports contingent clauses and renegotiation, a guild is powerful but draws antitrust.</InfoDot>
+              <InfoDot title="Coopetition">Form a pact with a rival to pool brand, coordinate capacity, or share supply. The governance form is the key choice. A handshake costs trust to break. A formal contract costs cash but allows contingent clauses and renegotiation. A guild is powerful but draws antitrust scrutiny.</InfoDot>
             </div>
             <div className="mt-2">
               <Alliances view={view} d={d} set={set} />
@@ -1532,22 +1588,27 @@ export function DecisionForm({
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={d.buy_info || infoLocked} disabled={infoLocked} onChange={(e) => { if (infoLocked) return; set({ buy_info: e.target.checked }); onInfoChange?.(e.target.checked); }} />
+                <input type="checkbox" checked={d.buy_info || infoLocked} disabled={infoLocked || noReportYet} onChange={(e) => { if (infoLocked || noReportYet) return; set({ buy_info: e.target.checked }); onInfoChange?.(e.target.checked); }} />
                 Buy market research <span className="tnum text-inksoft">({fmt.money(infoCost)})</span>
               </label>
               <LeverNote f="buy_info" />
               <div className={`mt-0.5 text-[0.68rem] ${d.buy_info || infoLocked ? "text-hop" : "text-inksoft"}`}>
-                {infoLocked
-                  ? `✓ Purchased for this round${buyer ? ` by ${buyer}` : ""} — the report is already in your team's hands, so it can't be returned. ${view.researchReports ? "The retail scan, consumer survey and analyst brief are" : `Rivals' quality, brand, ${view.publicPrices ? "shares" : "pricing"} & the strategy map are`} open in the Field & Intel tab.`
-                  : d.buy_info ? `✓ ${view.researchReports ? "The retail scan, consumer survey and analyst brief are" : `Rivals' quality, brand, ${view.publicPrices ? "shares" : "pricing"} & the strategy map are`} unlocked in the Field & Intel tab.` : `${view.researchReports ? "Three reports in Field & Intel: a retail scan of every brewery's sales, a consumer survey with an NPS-style score, an analyst brief" : `Reveals rivals' quality, brand, capacity${view.publicPrices ? ", category shares" : ", prices"} and the strategy map (Field & Intel)`} this round${team ? " — for the whole team; any chair can buy it" : ""}. Once you open the report, the purchase stands.`}
+                {(() => {
+                  const what = view.researchReports ? "The retail scan, consumer survey and analyst brief are" : `Rivals' quality, brand, ${view.publicPrices ? "shares" : "pricing"} and the strategy map are`;
+                  if (infoLocked && noReportYet) return `✓ Bought for this round${buyer ? ` by ${buyer}` : ""}, but there is no last quarter to report on yet: the reports start after round 1.`;
+                  if (noReportYet) return "Research reports on last quarter's market, so it opens from round 2.";
+                  if (infoLocked) return `✓ Bought for this round${buyer ? ` by ${buyer}` : ""}. ${what} open in Field & Intel. A report you've read can't be returned, so this can't be undone.`;
+                  if (d.buy_info) return `✓ Opens in Field & Intel once you submit. After that, the purchase stands for this round.`;
+                  return `${view.researchReports ? "Three reports in Field & Intel: a retail scan of every brewery's sales, a consumer survey (a recommend score and shoppers' WTP for your drinks) and an analyst brief" : `Shows rivals' quality, brand, capacity${view.publicPrices ? ", category shares" : ", prices"} and the strategy map (Field & Intel)`} this round${team ? ", for the whole team; any chair can buy it" : ""}. ${team || submitLabel ? "Once you submit with it, the purchase stands." : "Ticking buys it now: the reports open at once, and the purchase can't be undone this round."}`;
+                })()}
               </div>
             </div>
             <label className="flex items-center gap-2 text-sm">
               Predict your finish rank:
-              <input type="number" min="1" max={view.standings.length || 8} value={d.beliefs?.own_rank ?? ""} onChange={(e) => set({ beliefs: { ...d.beliefs, own_rank: e.target.value ? +e.target.value : undefined } })} className="w-16 text-center" />
+              <input type="number" min="1" max={view.standings.length || 8} value={d.beliefs?.own_rank ?? ""} onChange={(e) => set({ beliefs: { ...d.beliefs, own_rank: e.target.value ? Math.max(1, Math.min(view.standings.length || 8, Math.round(+e.target.value) || 1)) : undefined } })} className="w-16 text-center" />
             </label>
           </div>
-          <textarea aria-label="Your strategy this round, in one line"
+          <textarea aria-label="Your strategy this round, in one line" maxLength={4000}
             placeholder="One line on your strategy this round…"
             value={d.reflection ?? ""}
             onChange={(e) => set({ reflection: e.target.value })}
@@ -1573,10 +1634,11 @@ export function DecisionForm({
           {railBody}
           <div data-dw="commit-submit" className="px-4 pb-3 pt-2 lg:sticky lg:bottom-0 lg:z-[1] lg:shadow-[0_-12px_24px_rgba(0,0,0,0.18)]" style={{ borderTop: team ? "1px solid var(--color-line)" : undefined, background: "var(--sheen), var(--color-panel)" }}>
             {railWarnings}
+            {receipt}
             <Button variant="go" onClick={() => onPlay(mergeDecision(view, d, cityActions, poaches))} disabled={busy} className="mt-1 w-full py-3 text-base">
               {submitText()}
             </Button>
-            <div className="mt-1.5 text-center text-[0.66rem]" style={{ color: "var(--color-faint)" }}>{footerNote ?? "Seven rival breweries brew at the same time."}</div>
+            <div className="mt-1.5 text-center text-[0.66rem]" style={{ color: "var(--color-faint)" }}>{footerNote ?? "Rival breweries brew at the same time."}</div>
           </div>
           {/* DW-082e: the calls sit BELOW Submit — above it they pushed the button a long scroll down the rail
               (playtest 10-28). Safe: a tap saves on its own within a second (Calls.tsx), and submit re-sends them. */}
@@ -1601,6 +1663,7 @@ export function DecisionForm({
             {railHead}
             {railBody}
             {((guard && guard.cuts.length > 0) || overcommit || (unsent && diffs.rows.length > 0)) && <div className="px-4 pt-2">{railWarnings}</div>}
+            {receipt && <div className="px-4 pt-2">{receipt}</div>}
             {railCalls}
           </div>
         ) : team && diffs.rows.length > 0 && (
@@ -1620,6 +1683,7 @@ export function DecisionForm({
           </div>
         )}
         {unsent && <div className="px-4 pt-2 text-[0.72rem] leading-snug text-gold">Changed since you submitted — update to send it.</div>}
+        {showReceipt && !sheetOpen && <div data-dw="sent-receipt-sheet" role="status" className="px-4 pt-2 text-[0.72rem] leading-snug text-ink"><span aria-hidden className="text-hop">✓ </span>Sent{sentTime ? ` at ${sentTime}` : ""}. It runs when the round locks{mates.length ? ` · teammates in ${mates.length - matesOut.length} of ${mates.length}` : ""}{receiptCaps.length ? " · some orders change when it runs (open the panel to see)" : ""}.</div>}
         <div className="flex items-center gap-3 px-4 pt-2.5">
           <button type="button" aria-expanded={sheetOpen} aria-controls="commit-sheet-body" onClick={() => setSheetOpen((v) => !v)} className="shrink-0 rounded-lg text-left" data-dw="sheet-cash">
             <div className="flex items-center gap-1 font-mono text-[0.5rem] uppercase tracking-[0.1em] text-inksoft">{team ? "Team locks" : "Cash · pre-sales"}<span aria-hidden className="text-[0.7rem] leading-none text-copper">{sheetOpen ? "▾" : "▴"}</span></div>
@@ -1641,7 +1705,7 @@ function diffHeadline({ rows }: { rows: PlanDiff[] }): string {
   // DW-081: "not yours" only where you changed the lever — else your form just carries last round's value
   const notYours = rows.some((r) => r.winner === "them" && r.changed) ? ", not yours" : "";
   if (them === n) return n === 1 ? "1 lever locks at a teammate's number" : `${n} levers lock at a teammate's number${notYours}`;
-  if (them === 0 && notices === n) return n === 1 ? "1 lever set by a teammate for an empty chair — your form carries it" : `${n} levers set by teammates for empty chairs — your form carries them`;
+  if (them === 0 && notices === n) return n === 1 ? "1 lever set by a teammate for an empty chair — your form includes it" : `${n} levers set by teammates for empty chairs — your form includes them`;
   if (them === 0) return n === 1 ? "1 lever differs from a teammate's entry — yours is used" : `${n} levers differ from a teammate's entry — yours are used`;
   return `${them} of ${n} differing levers lock at a teammate's number${notYours}`;
 }

@@ -207,8 +207,10 @@ export function buildStatements(input: FinanceInputs): FinanceOutput {
   if (equityAsked > equityGross + 0.5) {
     events.push(
       equityGross > 0.5
-        ? `EQUITY: investors fund only $${fmNum(equityGross)} of the $${fmNum(equityAsked)} ${f.id} sought — ${Math.round((c.finance.equity_gate?.max_fraction_of_valuation ?? 1) * 100)}% of its valuation is the most they will buy in a quarter`
-        : `EQUITY MARKET CLOSED: no investor will fund ${f.id}'s $${fmNum(equityAsked)} raise — its losses have pushed its valuation to zero or below`,
+        ? `EQUITY: investors fund only $${fmNum(equityGross)} of the $${fmNum(equityAsked)} ${f.id} sought — ${Math.round((c.finance.equity_gate?.max_fraction_of_valuation ?? 1) * 100)}% of its ${c.finance.equity_gate?.basis === "business" ? "business value (not counting cash)" : "valuation"} is the most they will buy in a quarter`
+        : c.finance.equity_gate?.basis === "business"
+          ? `EQUITY MARKET CLOSED: no investor will fund ${f.id}'s $${fmNum(equityAsked)} raise — not counting the cash it holds, investors value the business at zero or less`
+          : `EQUITY MARKET CLOSED: no investor will fund ${f.id}'s $${fmNum(equityAsked)} raise — its losses have pushed its valuation to zero or below`,
     );
   }
   // Credit rationing (creditCapacity): the draw is cut so post-financing leverage ≤ max_leverage.
@@ -545,7 +547,10 @@ export function firmValuation(f: FirmState, c: Pick<Config, "finance">, skipFoun
 export function equityCapacity(f: FirmState, c: Pick<Config, "finance">): number {
   const g = c.finance.equity_gate;
   if (!g?.enabled) return Infinity;
-  return Math.max(0, g.max_fraction_of_valuation * firmValuation(f, c, g.skip_founding_round));
+  // 11-18: on the "business" basis the cash already in the bank is not part of what investors buy into, so a raise
+  // cannot lift the cap it was measured against (types.ts equity_gate.basis).
+  const held = g.basis === "business" ? Math.max(0, f.cash) : 0;
+  return Math.max(0, g.max_fraction_of_valuation * (firmValuation(f, c, g.skip_founding_round) - held));
 }
 
 /** Keys used by the valuation premium (kept here to stay in sync with the type). */

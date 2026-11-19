@@ -17,6 +17,7 @@
  */
 import type { Candidate, Config, Employee, EmployeeStock, FirmDecision, FirmId, FirmRoundResult, FirmState, WorldState } from "../types.js";
 import { RNG, deriveSeed } from "../rng.js";
+import { staffNeedFactor } from "./cost.js";
 
 export interface EmployeesOutcome {
   opexByFirm: Map<FirmId, number>; // salaries (expensed)
@@ -44,7 +45,7 @@ const LAST_INITIAL = ["A", "B", "C", "D", "F", "G", "H", "K", "L", "M", "N", "P"
 const fmNum = (n: number): string => Math.round(n).toLocaleString("en-US");
 
 /** The fair (market) salary for a given role/skill — the benchmark satisfaction is judged against. */
-const marketRate = (baseSalary: number, skill: number): number => baseSalary * (0.55 + 0.15 * skill);
+export const marketRate = (baseSalary: number, skill: number): number => baseSalary * (0.55 + 0.15 * skill);
 
 /** DW-075: what a departure takes with it — "" when nothing was built up, so pre-DW-075 event
  *  text is unchanged for people without loyalty. Callers prefix the separator. */
@@ -219,8 +220,9 @@ export function resolveEmployees(world: WorldState, decisions: Map<FirmId, FirmD
       // hire round. With the block absent `loy` is 0 and the product is bit-identical.
       const loy = cfg.loyalty ? (e.loyalty ?? 0) : 0;
       f[role.primary_stock as EmployeeStock] = cur + e.skill * role.gain_per_skill * e.satisfaction * sat * (1 + loy);
-      // Satisfaction drift: pay vs market, tenure milestones, firm distress.
-      let ds = e.salary >= marketRate(role.base_salary, e.skill) ? 0.03 : -0.06;
+      // Satisfaction drift: pay vs what they need, tenure milestones, firm distress. 11-18: the need is the market rate
+      // × staffNeedFactor — less at a brewery with a strong Taproom community (×1 exactly when costs.wts is absent).
+      let ds = e.salary >= marketRate(role.base_salary, e.skill) * staffNeedFactor(f.T_emp, c) ? 0.03 : -0.06;
       e.tenure_rounds += 1;
       if (e.tenure_rounds === 3 || e.tenure_rounds === 6 || e.tenure_rounds === 10) ds += cfg.tenure_bump;
       if (distress) ds -= 0.05;

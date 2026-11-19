@@ -23,7 +23,7 @@ export function ScenarioPicker({ onStart, onBack }: { onStart: (s: Scenario) => 
         </h1>
         <div className="mt-4 h-px w-24 bg-copper" />
         <p className="mt-4 max-w-2xl text-[0.95rem] leading-relaxed text-inksoft">
-          Each scenario cranks one strategic force into the dominant driver of a short 3–5 round season. Read the objective, play the run, then the debrief ties what happened back to the theory.
+          Each scenario makes one strategic force the main driver of a short 3–5 round season. Read the objective and play the run. The debrief then ties what happened back to the theory.
         </p>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2">

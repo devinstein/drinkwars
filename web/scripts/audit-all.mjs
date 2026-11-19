@@ -4,7 +4,7 @@
 // processes it started (by PID group — never by command line). Needs Google Chrome + puppeteer-core.
 //
 //   node web/scripts/audit-all.mjs                      desk, ui, probe-covers, class-rehearsal, layout
-//   AUDITS=desk,class node web/scripts/audit-all.mjs    a subset (desk | ui | probe | class | expansion | layout)
+//   AUDITS=desk,class node web/scripts/audit-all.mjs    a subset (desk | ui | probe | class | expansion | layout | tour)
 //   PORT=8797 WEB_PORT=5183 …                           ports (defaults 8797 / 5183, so a dev server you
 //                                                       have open on 8787 / 5173 is left alone)
 //   MODULES=<preset|comma list>                         forwarded to the scripts that take it
@@ -17,8 +17,8 @@ const WEB_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const ROOT = path.resolve(WEB_DIR, "..");
 const PORT = process.env.PORT ?? "8797", WEB_PORT = process.env.WEB_PORT ?? "5183";
 const API = `http://localhost:${PORT}`, WEB = `http://localhost:${WEB_PORT}`;
-const ALL = { desk: "desk-audit.mjs", ui: "ui-audit.mjs", probe: "probe-covers.mjs", class: "class-rehearsal.mjs", expansion: "expansion-rehearsal.mjs", layout: "layout-audit.mjs" };
-const want = (process.env.AUDITS ?? "desk,ui,probe,class,layout").split(",").map((s) => s.trim()).filter((k) => ALL[k] && existsSync(path.join(WEB_DIR, "scripts", ALL[k])));
+const ALL = { desk: "desk-audit.mjs", ui: "ui-audit.mjs", probe: "probe-covers.mjs", class: "class-rehearsal.mjs", expansion: "expansion-rehearsal.mjs", layout: "layout-audit.mjs", tour: "tour-audit.mjs" };
+const want = (process.env.AUDITS ?? "desk,ui,probe,class,layout,tour").split(",").map((s) => s.trim()).filter((k) => ALL[k] && existsSync(path.join(WEB_DIR, "scripts", ALL[k])));
 
 const kids = [];
 const start = (cmd, args, cwd, env = {}) => {

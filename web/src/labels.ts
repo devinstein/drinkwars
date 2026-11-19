@@ -62,7 +62,7 @@ export const DISTRICT_TRAITS: Record<string, string> = {
 export const SHOCK_META: Record<string, { label: string; icon: string; note: string }> = {
   water: { label: "Water shortage", icon: "💧", note: "drives up input costs" },
   harvest: { label: "Harvest failure", icon: "🌾", note: "drives up input costs" },
-  co2: { label: "CO₂ & packaging squeeze", icon: "📦", note: "constrains capacity" },
+  co2: { label: "CO₂ & packaging shortage", icon: "📦", note: "constrains capacity" },
   // DW-044 gamemaster demand events (never roll on their own — planted by the instructor).
   demand_slump: { label: "Recession", icon: "📉", note: "demand softens across the board" },
   craft_wave: { label: "Festival season", icon: "🎉", note: "demand surges across the board" },
@@ -100,15 +100,19 @@ export const toDisplayMoney = (n: number): number => n * MONEY_DISPLAY;
 /** display dollars → engine units (identity since DW-029). */
 export const toEngineMoney = (n: number): number => n / MONEY_DISPLAY;
 
+/** A fixed-point string with a true minus sign; "-0.0" reads as "0.0". */
+export const minus = (s: string): string => (/^-0(\.0+)?$/.test(s) ? s.slice(1) : s.startsWith("-") ? `−${s.slice(1)}` : s);
+
 export const fmt = {
   // A loss reads "−$167,000" (true minus, sign before the $), never "$-167,000".
   money: (n: number) => { const v = Math.round(n * MONEY_DISPLAY) || 0; return v < 0 ? `−$${money0.format(-v)}` : `$${money0.format(v)}`; },
   price: (n: number) => `$${n.toFixed(2)}`, // per-drink, engine-native scale (real ≈ $7.65)
   int: (n: number) => money0.format(Math.round(n * VOLUME_DISPLAY)), // drink VOLUME (see note)
-  pct: (n: number) => `${(n * 100).toFixed(0)}%`,
-  pct1: (n: number) => `${(n * 100).toFixed(1)}%`,
-  num: (n: number, d = 1) => n.toFixed(d),
-  signed: (n: number) => { const v = Math.round(n * MONEY_DISPLAY) || 0; return v >= 0 ? `+$${money0.format(v)}` : `-$${money0.format(Math.abs(v))}`; },
+  // 11-16: a true minus, and never "−0.0" (a value that rounds to zero prints as zero)
+  pct: (n: number) => minus((n * 100).toFixed(0)) + "%",
+  pct1: (n: number) => minus((n * 100).toFixed(1)) + "%",
+  num: (n: number, d = 1) => minus(n.toFixed(d)),
+  signed: (n: number) => { const v = Math.round(n * MONEY_DISPLAY) || 0; return v >= 0 ? `+$${money0.format(v)}` : `−$${money0.format(Math.abs(v))}`; },
 };
 
 /** City/market presentation for the City View — a fictional city name, region, globe

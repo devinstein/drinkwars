@@ -18,7 +18,7 @@ export function deskLines(desk: CockpitDesk, d: FirmDecision, view: GameView): s
   const out: string[] = [];
   const activeSegs = view.segments.filter((s) => s.active).map((s) => s.id);
   if (desk === "commercial") {
-    const prices = activeSegs.filter((s) => (d.price?.[s] ?? 0) > 0).map((s) => `${SEG_LABEL[s] ?? humanizeId(s)} ${money(d.price[s])}`);
+    const prices = activeSegs.filter((s) => (d.price?.[s] ?? 0) > 0).map((s) => `${SEG_LABEL[s] ?? humanizeId(s)} ${fmt.price(d.price[s])}`); // a price, not whole dollars
     if (prices.length) out.push(`Price · ${prices.join(" · ")}`);
     const mkts = Object.entries(d.market_presence ?? {}).filter(([, v]) => (v ?? 0) > 0).length;
     if (mkts > 0) out.push(`Selling in ${mkts} market${mkts === 1 ? "" : "s"}`);
@@ -73,10 +73,17 @@ export function deskLines(desk: CockpitDesk, d: FirmDecision, view: GameView): s
   return out;
 }
 
+/** 11-16 (post-mortems: a team wasn't sure its decisions went through). What a seat's receipt lists after a
+ *  landed submit: its desk's moves on the plan that will run — every desk for the CEO and a one-student firm. */
+export function receiptLines(view: GameView, plan: FirmDecision, desk: CockpitDesk): string[] {
+  const desks: CockpitDesk[] = desk === "all" ? ["commercial", "operations", "people", "finance", "strategy"] : [desk];
+  return desks.flatMap((k) => deskLines(k, plan, view));
+}
+
 /** Rough cash reconciliation of the composed plan: committed outflows vs financing
  *  inflows vs cash on hand. An ESTIMATE — payroll/opex/COGS aren't included — but it
  *  catches the classic miss: desks committing spend the CFO never financed. */
-export function planCash(d: FirmDecision, view: GameView): { out: number; inflow: number; reserve: number; after: number } {
+export function planCash(d: FirmDecision, view: GameView): { out: number; inflow: number; reserve: number; interest: number; after: number } {
   const facTypes = view.modules?.facilities?.types ?? [];
   const buildCapex = (d.build_facilities ?? []).reduce((a, b) => {
     const t = facTypes.find((x) => x.id === b.type);
@@ -99,8 +106,7 @@ export function planCash(d: FirmDecision, view: GameView): { out: number; inflow
   // v3 (11-06 playtest): with the reserve on, the round sets the quarter's running costs aside before it pays for
   // any order. The commit rail and the engine both count it; this card said "short $740,000" beside a rail that
   // cut the tanks to $398,960. Same estimate as the rail.
-  const reserve = view.finance?.affordability_guard?.reserve_running_costs && view.capacity && view.own && grant
-    ? runningCostsAsGuard(view, d, grant).total
-    : 0;
-  return { out, inflow, reserve, after: cash + inflow - out - reserve };
+  const rc = view.finance?.affordability_guard?.reserve_running_costs && view.capacity && view.own && grant ? runningCostsAsGuard(view, d, grant) : null;
+  const reserve = rc?.total ?? 0;
+  return { out, inflow, reserve, interest: rc?.interest ?? 0, after: cash + inflow - out - reserve };
 }

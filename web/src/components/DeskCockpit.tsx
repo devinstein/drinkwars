@@ -103,7 +103,7 @@ export function DeskCockpit({ desk, view, seatRole, rationale, onRationale }: {
           <div className="flex items-center gap-1.5">
             <Eyebrow>Your numbers vs the field</Eyebrow>
             <InfoDot title="Reading the round" align="left">
-              Firm-level figures, visible to the whole team — the shared picture you decide from. Each shows what it means so a teammate outside this discipline can follow the story.
+              Figures for the whole firm, visible to every teammate. Each one says what it means.
             </InfoDot>
           </div>
           <div className="mt-1.5 grid gap-x-4 gap-y-2 sm:grid-cols-2">
@@ -136,7 +136,7 @@ export function DeskCockpit({ desk, view, seatRole, rationale, onRationale }: {
         <label className="flex items-center gap-1.5">
           <Eyebrow>Your recommendation this round</Eyebrow>
           <InfoDot title="Why capture this?" align="left">
-            One line on what you're recommending and why. It's your thinking aid now; in team play it becomes what you bring to the huddle — the record of who proposed what.
+            One line on what you recommend and why. It helps you explain your plan to your team.
           </InfoDot>
         </label>
         <textarea

@@ -1,6 +1,7 @@
 import { compareStanding } from "drinkwars-engine";
 import { useEffect } from "react";
 import type { GameView, FirmSnapshot } from "../game/controller.js";
+import { hasResolved } from "../lib/resolved.js";
 import { SEG_LABEL, STOCK_LABEL, fmt } from "../labels.js";
 import { HEALTH, npsColor, npsText } from "./ResearchReports.js";
 import { Row, Tag } from "./ui.js";
@@ -179,7 +180,7 @@ export function FirmDetail({
                 <Row label="Fair value" value="$████" />
               </div>
               <p className="mt-2 text-[0.72rem] leading-snug text-inksoft">
-                Tick <span className="font-semibold text-copperdeep">Buy market research</span> in your decision to reveal exact quality, brand, pricing, cost, leverage{maOn ? ", fair value," : ""} and their crew.
+                Tick <span className="font-semibold text-copperdeep">Buy market research</span> in your decision to see {view.researchReports ? "estimates of" : "exact"} quality, brand, pricing, cost, leverage{maOn ? ", fair value," : ""} and their crew{hasResolved(view) ? "" : " (from round 2)"}.
               </p>
             </div>
           )}
@@ -215,12 +216,12 @@ export function FirmDetail({
                     );
                   })}
                   <p className="mt-0.5 text-[0.64rem] leading-snug text-inksoft">
-                    Offer above their current pay to lure them across. The unhappier they are and the bigger your raise, the likelier they jump — a successful raid adds a one-time signing premium. Queued offers settle when you brew the round.
+                    Offer above their current pay to lure them across. The unhappier they are and the bigger your raise, the likelier they are to switch. A successful raid adds a one-time signing premium. Queued offers settle when you brew the round.
                   </p>
                 </div>
               ) : (
                 <div className="rounded-md border border-line bg-paper2/30 p-3 text-[0.72rem] leading-snug text-inksoft">
-                  {firm.name} employs <span className="font-semibold text-ink">{firm.employees.length}</span> specialist{firm.employees.length === 1 ? "" : "s"}. Tick <span className="font-semibold text-copperdeep">Buy market research</span> in your decision to see who they are — names, pay, and morale — and to make a poaching offer.
+                  {firm.name} employs <span className="font-semibold text-ink">{firm.employees.length}</span> specialist{firm.employees.length === 1 ? "" : "s"}. Tick <span className="font-semibold text-copperdeep">Buy market research</span> in your decision to see who they are (names, pay, and morale) and to make a poaching offer.
                 </div>
               )}
             </div>

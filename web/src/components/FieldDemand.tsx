@@ -96,7 +96,7 @@ export function FieldDemandCard({ data, colorByFirm, nameByFirm }: { data: DashD
     <Card>
       <Eyebrow>Field view · demand by category, round by round</Eyebrow>
       <div className="mb-3 text-base text-inksoft">
-        Who charged what, how good and how known each brewery was, and the share of shoppers that bought them. Scrub the rounds to replay the season.
+        Who charged what, how good and how known each brewery was, and the share of shoppers that bought them. Step through the rounds to replay the season.
       </div>
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="Category">

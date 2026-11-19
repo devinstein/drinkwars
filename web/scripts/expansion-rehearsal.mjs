@@ -26,6 +26,7 @@
 //          (l) DW-082e: a build the CMO sends AFTER that cancel reads "Waiting on … (CEO)", not "cancelled it";
 //   ALPHA  (m) DW-082e: the CEO's map draws the COO's planned build (as a teammate's) before the round resolves;
 //          (n) a build the COO sent and then withdrew leaves the COO's map at once (not redrawn as a teammate's);
+//   BRAVO  (p) 11-16: a market entered and submitted, then withdrawn on the map before lock, never runs;
 //          (o) r3, playtest 10-29: the COO updates without touching builds, the CHRO sites one → the CEO's map points
 //              to Cancel it, the What locks row has it, one submit drops the build, the CHRO's map names both calls;
 //          (i) no pageerror / console error on any page, all game long.
@@ -59,8 +60,8 @@ const keysOn = (mp) => Object.entries(mp ?? {}).filter(([, w]) => (w ?? 0) > 0).
 const watch = async (p, tag) => {
   p.on("pageerror", (e) => logs.push(`[${tag} pageerror] ${e.message}`));
   p.on("console", (m) => { if (m.type() === "error" && !/404|validateDOMNesting/.test(m.text())) logs.push(`[${tag} error] ${m.text().slice(0, 200)}`); });
-  p.on("dialog", async (d) => { logs.push(`[${tag} dialog] ${d.message().replace(/\s+/g, " ").slice(0, 400)}`); await d.accept(); });
-  await autoConfirm(p, (t) => logs.push(`[${tag} dialog] ${t.replace(/\s+/g, " ").slice(0, 400)}`));
+  p.on("dialog", async (d) => { logs.push(`[${tag} dialog] ${d.message().replace(/\s+/g, " ").slice(0, 1200)}`); await d.accept(); });
+  await autoConfirm(p, (t) => logs.push(`[${tag} dialog] ${t.replace(/\s+/g, " ").slice(0, 1200)}`));
 };
 const mk = async (tag, sess) => {
   const ctx = await browser.createBrowserContext(); const p = await ctx.newPage(); await p.setViewport({ width: 1440, height: 1000 });
@@ -130,6 +131,17 @@ const enterMarketUI = async (page, nth = 0) => {
   await go.click(); await sleep(400);
   return name;
 };
+/** 11-16 (post-mortems): select the city entered this round ("Entering · $…") and press Withdraw entry. */
+const withdrawEntryUI = async (page) => {
+  await goTab(page, "City");
+  const row = await page.evaluateHandle(() => [...document.querySelectorAll("button")].find((b) => /Entering · \$/.test(b.innerText)) ?? null);
+  if (!(await row.evaluate((x) => !!x))) throw new Error("no 'Entering ·' city row");
+  await row.evaluate((x) => x.click()); await sleep(400);
+  const wd = await page.evaluateHandle(() => document.querySelector("[data-dw=withdraw-entry]"));
+  if (!(await wd.evaluate((x) => !!x))) throw new Error("no Withdraw entry button on the entered city");
+  await wd.evaluate((x) => x.click()); await sleep(400);
+  return has(page, /Entry withdrawn: no entry fee this round/);
+};
 /** Site the cheapest permitted facility on the first open parcel of the selected (home) market. */
 const siteFacilityUI = async (page) => {
   await goTab(page, "City");
@@ -174,12 +186,11 @@ const raiseUI = async (page, amount) => {
 };
 /** Review › Field & Intel › click the rival's row → dossier → "offer $" on their first employee → Escape. */
 const poachUI = async (page, rivalName, offer) => {
-  await goTab(page, "Review");
-  const tab = await page.evaluateHandle(() => [...document.querySelectorAll("button")].find((b) => /Field & Intel/.test(b.textContent)));
-  await tab.click(); await sleep(500);
-  // wait for the row — under a full audit run the Field table can paint well after the tab click
-  const row = await page.waitForFunction((n) => [...document.querySelectorAll("tr")].find((r) => r.children[0]?.innerText.trim() === n) ?? null, { timeout: 10000 }, rivalName).catch(() => null);
-  if (!row) throw new Error(`no Field row for ${rivalName}`);
+  // 11-16: the dossier opens from the Standings list on Decide ("Tap any brewery for its dossier"). Since 11-07, Field &
+  // Intel is the three research reports, and their rows open nothing — this driver clicked one and waited for a dossier.
+  await goTab(page, "Decide");
+  const row = await page.waitForFunction((n) => [...document.querySelectorAll("button")].find((b) => b.textContent.includes(n) && b.closest("div")?.parentElement?.textContent?.includes("Tap any brewery for its dossier")) ?? null, { timeout: 10000 }, rivalName).catch(() => null);
+  if (!row) throw new Error(`no Standings row for ${rivalName}`);
   await row.evaluate((x) => x.click()); await sleep(500);
   await waitText(page, /talent raid/, 8000);
   const inp = await page.$('input[placeholder="offer $"]');
@@ -271,6 +282,14 @@ await reload(P.a_chro);
 await submit(P.a_chro, "a_chro", A.chro.token);
 c = await composed(A.ceo);
 ok(allR1(c), "(e) CMO, COO and CHRO reload + resubmit unchanged — the entry, build, hire and bid all still stand", `${J({ markets: keysOn(c.market_presence), builds: c.build_facilities, hires: c.hire_employees, bids: c.hire_bids })}`);
+// (p) 11-16 (post-mortems): BRAVO's CMO enters a market by mistake, submits, then takes it back before lock
+const cityP = await enterMarketUI(P.b_cmo, 0);
+await submit(P.b_cmo, "b_cmo", B.cmo.token);
+const enteredP = keysOn((await composed(B.ceo)).market_presence).filter((k) => k !== "home");
+const saidP = await withdrawEntryUI(P.b_cmo);
+await submit(P.b_cmo, "b_cmo", B.cmo.token);
+const afterP = keysOn((await composed(B.ceo)).market_presence).filter((k) => k !== "home");
+ok(enteredP.length === 1 && saidP && afterP.length === 0, "(p) 11-16: the CMO enters a market, submits, withdraws it on the map and resubmits — the team plan no longer enters it", `${cityP}: ${J(enteredP)} → ${J(afterP)} · notice ${saidP}`);
 // the rest of the room: BRAVO's CEO hires a different candidate (next round's poach target); others untouched
 const rivalCand = cands.find((x) => x.id !== hiredId);
 await apiCeo(B.ceo, { hire_employees: [rivalCand.id] });
@@ -290,6 +309,7 @@ ok(a1 && (a1.cfLines?.investing?.facilities ?? 0) < 0 && (a1.opexLines?.distribu
 const vA = await view(A.chro.token);
 ok((vA.own.markets_entered ?? []).includes(mktA) && (vA.own.employees ?? []).some((e) => e.id === hiredId || e.name === hiredName) && (vA.own.facilities ?? []).length >= 1, "(f) ALPHA's state next round: in the market, the hire on staff, the facility on the books", J({ markets: vA.own.markets_entered, staff: (vA.own.employees ?? []).map((e) => e.name), sites: (vA.own.facilities ?? []).length }));
 const vB = await view(B.ceo.token);
+ok(!(vB.own.markets_entered ?? []).some((k) => k !== "home") && !evts(dash, 0).some((e) => /^EXPANSION: firm_2/.test(e)), "(p) resolved r1: BRAVO entered no market and paid no entry fee", J({ markets: vB.own.markets_entered }));
 ok((vB.own.employees ?? []).length >= 1, "set-up r2: BRAVO has an employee to poach", J((vB.own.employees ?? []).map((e) => e.name)));
 
 // ════ ROUND 2 (wire 1) ════

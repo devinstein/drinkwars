@@ -2,10 +2,11 @@ import { MP_ENABLED } from "../game/multiplayer.js";
 
 /** Entry screen: solo practice always; live join/instructor only where a game
  *  server is reachable (local dev / hosted), gated on the public static build. */
-export function Lobby({ onPick }: { onPick: (s: "solo" | "scenario" | "join" | "instructor" | "player") => void }) {
-  const choices: { id: "solo" | "scenario" | "join" | "instructor" | "player"; title: string; blurb: string }[] = [
+export function Lobby({ onPick }: { onPick: (s: "learn" | "solo" | "scenario" | "join" | "instructor" | "player") => void }) {
+  const choices: { id: "learn" | "solo" | "scenario" | "join" | "instructor" | "player"; title: string; blurb: string }[] = [
+    { id: "learn", title: "Learn the game", blurb: "A guided first round, about ten minutes: what each screen shows and where each decision goes." }, // 11-16
     { id: "solo", title: "Play solo", blurb: "Practice a full season against seven rival breweries." },
-    { id: "scenario", title: "Scenarios", blurb: "Short, focused challenges — one strategy lesson at a time." },
+    { id: "scenario", title: "Scenarios", blurb: "Short challenges, each built around one strategy lesson." },
     ...(MP_ENABLED
       ? ([
           { id: "join", title: "Join a game →", blurb: "Enter a 6-character code from your instructor." },
@@ -23,7 +24,7 @@ export function Lobby({ onPick }: { onPick: (s: "solo" | "scenario" | "join" | "
         </h1>
         <div className="mt-4 h-px w-24 bg-copper" />
         <p className="mt-6 max-w-xl text-lg leading-relaxed text-inksoft">
-          Run a craft beverage company against adaptive rivals — set your prices, build the brewery, and out-strategize the field across a 16-round season.
+          Run a craft brewery against rivals that adapt to what you do. Set prices, build the brewery, manage the money, and compete for shoppers across a season.
         </p>
         <div className={`mt-8 grid gap-3 ${choices.length > 1 ? "sm:grid-cols-2" : "sm:grid-cols-1"}`}>
           {choices.map((c) => (
@@ -36,7 +37,7 @@ export function Lobby({ onPick }: { onPick: (s: "solo" | "scenario" | "join" | "
         <p className="mt-6 max-w-xl text-[0.82rem] leading-relaxed text-inksoft">
           {MP_ENABLED
             ? "Solo play needs no sign-in. To play with a class, join a live game with a code from your instructor, or set up your own session."
-            : "Jump straight in — solo play needs no sign-in or setup."}
+            : "Solo play needs no sign-in or setup."}
         </p>
       </div>
     </div>

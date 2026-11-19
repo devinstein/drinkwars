@@ -56,6 +56,13 @@ export function useGame() {
   }), []);
   const infoCost = useCallback(() => ref.current?.infoCost() ?? 0, []);
 
+  // 11-16: solo research is bought the moment it is ticked (the reports open at once) — no untick after reading.
+  const buyResearch = useCallback(async () => {
+    if (!ref.current) return;
+    ref.current.buyResearch();
+    setView(await ref.current.view());
+  }, []);
+
   const reset = useCallback(() => {
     ref.current = null;
     setPlayerColor(null); // back to the default palette until the next firm is founded
@@ -64,5 +71,5 @@ export function useGame() {
     setError(null);
   }, []);
 
-  return { view, busy, error, start, play, defaultDecision, infoCost, reset, calls, runId };
+  return { view, busy, error, start, play, defaultDecision, infoCost, reset, calls, runId, buyResearch };
 }

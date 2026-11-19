@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useGame } from "./game/useGame.js";
 import { FirmBuilder } from "./screens/FirmBuilder.js";
 import { setPlayerColor, setPlayerEmblem } from "./lib/teamColors.js";
@@ -6,6 +6,7 @@ import { Play } from "./screens/Play.js";
 import { Lobby } from "./screens/Lobby.js";
 import { ScenarioPicker } from "./screens/ScenarioPicker.js";
 import type { Scenario } from "./scenarios/catalog.js";
+import { GUIDED_NAME, GUIDED_OVERRIDE } from "./components/GuidedRound.js";
 import { Join } from "./screens/Join.js";
 import { PlayerHome } from "./screens/PlayerHome.js";
 import { MultiplayerPlay } from "./screens/MultiplayerPlay.js";
@@ -16,14 +17,14 @@ import { ModeToggle } from "./components/ModeToggle.js";
 
 /** Single-player: the full stack runs in the browser (engine + orchestration + NPCs). */
 function Solo() {
-  const { view, busy, error, start, play, defaultDecision, infoCost, reset, calls, runId } = useGame();
+  const { view, busy, error, start, play, defaultDecision, infoCost, reset, calls, runId, buyResearch } = useGame();
   if (!view)
     return (
       <>
         {error && (
           <div className="mx-auto mt-4 max-w-[640px] px-4">
             <div className="rounded-lg border border-brick/40 bg-brick/10 px-4 py-3 text-sm text-ink">
-              <span className="font-semibold text-brick">Couldn't open the brewery.</span> {error}. Adjust your setup and try again — if it keeps happening, a hard refresh (⌘⇧R) clears any stale cache.
+              <span className="font-semibold text-brick">Couldn't open the brewery.</span> {error}. Change your setup and try again. If it keeps happening, reload the page with ⌘⇧R.
             </div>
           </div>
         )}
@@ -37,14 +38,14 @@ function Solo() {
         />
       </>
     );
-  return <Play view={view} busy={busy} infoCost={infoCost()} onPlay={play} defaultDecision={defaultDecision} onReset={reset} calls={calls} gameKey={runId} />; // DW-077 calls
+  return <Play view={view} busy={busy} infoCost={infoCost()} onPlay={play} onBuyInfo={buyResearch} defaultDecision={defaultDecision} onReset={reset} calls={calls} gameKey={runId} />; // DW-077 calls
 }
 
 /** Scenario mode: pick a focused challenge → play it with the objective pinned as a banner,
  *  and the debrief surfaced when the short season completes. Reuses the whole Solo stack;
  *  the only new inputs are the config override + the objective/debrief strings. */
 function Scenarios({ onExit }: { onExit: () => void }) {
-  const { view, busy, error, start, play, defaultDecision, infoCost, reset, calls, runId } = useGame();
+  const { view, busy, error, start, play, defaultDecision, infoCost, reset, calls, runId, buyResearch } = useGame();
   const [active, setActive] = useState<Scenario | null>(null);
   if (!active) return <ScenarioPicker onStart={(s) => { setActive(s); start({ breweryName: "Your Brewery", difficulty: s.id === "blue-water" ? "cutthroat" : "competitive", override: s.override }); }} onBack={onExit} />;
   if (!view) return (
@@ -53,10 +54,23 @@ function Scenarios({ onExit }: { onExit: () => void }) {
     </div>
   );
   const banner = view.complete ? `Debrief — ${active.debrief}` : `Objective — ${active.objective}`;
-  return <Play view={view} busy={busy} infoCost={infoCost()} onPlay={play} defaultDecision={defaultDecision} onReset={() => { setActive(null); reset(); }} banner={banner} onExit={onExit} calls={calls} gameKey={`scenario:${active.id}:${runId}`} />; // DW-077 calls
+  return <Play view={view} busy={busy} infoCost={infoCost()} onPlay={play} onBuyInfo={buyResearch} defaultDecision={defaultDecision} onReset={() => { setActive(null); reset(); }} banner={banner} onExit={onExit} calls={calls} gameKey={`scenario:${active.id}:${runId}`} />; // DW-077 calls
 }
 
-type Screen = "lobby" | "solo" | "scenario" | "join" | "instructor" | "player";
+/** 11-16 (post-mortems): "Learn the game" — a practice solo game on a fixed seed with the guided first round on top. */
+function Learn({ onExit }: { onExit: () => void }) {
+  const { view, busy, error, start, play, defaultDecision, infoCost, reset, calls, runId, buyResearch } = useGame();
+  const started = useRef(false);
+  useEffect(() => { if (!started.current) { started.current = true; start({ breweryName: GUIDED_NAME, difficulty: "relaxed", override: GUIDED_OVERRIDE }); } }, [start]);
+  if (!view) return (
+    <div className="mx-auto mt-16 max-w-[640px] px-4 text-center text-inksoft">
+      {error ? <span className="text-brick">Couldn't start the practice game: {error}.</span> : "Setting up the practice game…"}
+    </div>
+  );
+  return <Play view={view} busy={busy} infoCost={infoCost()} onPlay={play} onBuyInfo={buyResearch} defaultDecision={defaultDecision} onReset={() => { reset(); onExit(); }} onExit={onExit} calls={calls} gameKey={`learn:${runId}`} guide banner="Practice game · a guided first round. Nothing here counts toward a class game." />;
+}
+
+type Screen = "lobby" | "solo" | "scenario" | "learn" | "join" | "instructor" | "player";
 
 export function App() {
   // Resume a saved student session on load (refresh → same firm, not a new slot).
@@ -72,6 +86,7 @@ export function App() {
       {screen === "lobby" && <Lobby onPick={setScreen} />}
       {screen === "solo" && <Solo />}
       {screen === "scenario" && <Scenarios onExit={() => setScreen("lobby")} />}
+      {screen === "learn" && <Learn onExit={() => setScreen("lobby")} />}
       {screen === "join" && MP_ENABLED &&
         (student ? (
           <MultiplayerPlay client={student} onExit={() => { setStudent(null); setScreen("lobby"); }} />

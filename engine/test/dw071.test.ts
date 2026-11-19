@@ -20,13 +20,16 @@ const zero = (id: string, w: WorldState): FirmDecision => ({
 const firm = (w: WorldState, id: string): FirmState => w.firms.find((f) => f.id === id)!;
 const equityOf = (f: FirmState) => f.paid_in_capital + f.retained_earnings;
 
-test("equity gate: a fresh firm may raise up to half its valuation, and no more", () => {
+test("equity gate: a fresh firm may raise up to half its business value (valuation less its cash), and no more", () => {
   const c = resolveConfig();
   const w = initGame(c);
   const f = firm(w, "firm_1");
   const cap = equityCapacity(f, c);
   assert.ok(cap > 0 && Number.isFinite(cap), "a fresh firm is worth something");
-  assert.equal(cap, 0.5 * firmValuation(f, c, true));
+  assert.equal(c.finance.equity_gate?.basis, "business", "new games: the business basis (11-18)");
+  assert.equal(cap, 0.5 * (firmValuation(f, c, true) - f.cash));
+  const book = structuredClone(c); delete book.finance.equity_gate!.basis; // a stored DW-071 game: half the valuation, cash included
+  assert.equal(equityCapacity(f, book), 0.5 * firmValuation(f, c, true));
   const ask = cap * 3;
   const out = resolveRound(w, w.firms.map((x) => (x.id === "firm_1" ? { ...zero(x.id, w), equity_raise: ask } : zero(x.id, w))), c);
   const raised = out.result.firm_results.find((r) => r.firm_id === "firm_1")!.balance_sheet.paid_in - f.paid_in_capital;

@@ -31,6 +31,15 @@ export function productivity(tEmp: number, c: Config): number {
   return 1 + productivity_kappa * (tEmp / (tEmp + productivity_halfsat));
 }
 
+/** 11-18 (WTS): what staff need, as a fraction of the going pay. Falls toward 1 − trust_max as Taproom community
+ *  (T_emp) builds above its starting level and rises when it runs down (types.ts CostConfig.wts). 1 when unconfigured. */
+export function staffNeedFactor(tEmp: number, c: Pick<Config, "costs" | "init">): number {
+  const w = c.costs.wts;
+  if (!w) return 1;
+  const x = tEmp - c.init.starting_T_emp;
+  return 1 - (w.trust_max * x) / (Math.abs(x) + w.trust_halfsat);
+}
+
 /** Premium-recipe cost markup: higher recipe quality (better ingredients, slower
  *  brewing, tighter QC) costs more per unit. Concave & bounded by κ. This is the
  *  cost-side counterweight to quality's demand-side pull — so quality is a real

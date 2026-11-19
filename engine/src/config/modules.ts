@@ -351,7 +351,7 @@ export const MODULE_REGISTRY: ModuleMeta[] = [
   },
   {
     id: "prEvents", code: "MOD-A04", tier: "A", category: "markets", name: "PR events / tactical brand",
-    blurb: "One-shot brand actions (festival, collab, viral label) that spike brand then decay fast; negative PR can fire.",
+    blurb: "One-time brand events (a festival, a collab, a viral label) that lift brand briefly, then fade. Bad press can also hit.",
     pedagogy: "Tactical vs strategic brand, reputation fragility, employee trust as brand insurance.",
     deps: [], implemented: true,
   },
@@ -381,7 +381,7 @@ export const MODULE_REGISTRY: ModuleMeta[] = [
   },
   {
     id: "lobbying", code: "MOD-A09", tier: "A", category: "society", name: "Regulatory capture / lobbying",
-    blurb: "Direct government-relations spend offensively to win a favorable regulation; rivals can counter-lobby.",
+    blurb: "Spend on government relations to win a rule that helps you. Rivals can lobby against it.",
     pedagogy: "Non-market strategy, regulatory capture, political CSR, competitive lobbying.",
     deps: [], implemented: true,
   },
@@ -448,7 +448,7 @@ export const MODULE_REGISTRY: ModuleMeta[] = [
   },
   {
     id: "inventory", code: "MOD-B09", tier: "B", category: "operations", name: "Production & inventory",
-    blurb: "Choose a brew run-rate; unsold finished goods carry over at weighted-average cost and spoil.",
+    blurb: "Choose how much to brew. Unsold beer carries over to the next round, and some of it spoils.",
     pedagogy: "Inventory turnover, demand uncertainty, spoilage & perishability, working capital.",
     deps: [], implemented: true,
   },
@@ -460,7 +460,7 @@ export const MODULE_REGISTRY: ModuleMeta[] = [
   },
   {
     id: "marketConduct", code: "MOD-A10", tier: "A", category: "society", name: "Market conduct & stakeholder backlash",
-    blurb: "Dominate and gouge — especially on thin quality — and you draw consumer-protection fines + brand backlash, unless regulator goodwill and reputation buffer you.",
+    blurb: "A dominant brewery that charges far above cost, especially with low quality, risks fines and brand damage. Good standing with regulators and a strong reputation lower the risk.",
     pedagogy: "Stakeholder theory, market power & antitrust, non-market risk, license to operate, reputation as insurance.",
     deps: [], implemented: true,
   },

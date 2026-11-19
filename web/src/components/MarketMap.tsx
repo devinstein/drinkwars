@@ -230,8 +230,8 @@ function ShockBanner({ shocks }: { shocks: ShockSignal[] }) {
         const head = s.active
           ? `${meta.label} is hitting the market now`
           : s.roundsAway <= 1
-            ? `Word of a ${meta.label.toLowerCase()} — it could land next round`
-            : `Early word of a ${meta.label.toLowerCase()} — perhaps ${s.roundsAway} rounds out`;
+            ? `Word of a ${meta.label.toLowerCase()} — it could arrive next round`
+            : `Early word of a ${meta.label.toLowerCase()} — perhaps ${s.roundsAway} rounds away`;
         return (
           <div
             key={i}
@@ -318,7 +318,7 @@ function District({ seg, demand, firms, shocks, youId, onInspect }: {
       {/* The street */}
       <div className="px-4 pb-2 pt-5" style={activeHit ? { background: "repeating-linear-gradient(45deg, color-mix(in srgb, var(--color-brick) 5%, transparent) 0 10px, transparent 10px 20px)" } : undefined}>
         {here.length === 0 ? (
-          <div className="py-6 text-center text-[0.78rem] text-inksoft">Open ground — no one has planted a flag here yet.</div>
+          <div className="py-6 text-center text-[0.78rem] text-inksoft">Open ground — no brewery has built here yet.</div>
         ) : (
           <div className="relative h-24" onMouseLeave={() => setHover(null)}>
             {/* baseline */}

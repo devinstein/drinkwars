@@ -151,6 +151,10 @@ export const defaultConfig: Config = {
     // demand pull, so a pure quality rush trades margin for appeal (κ = up to +45%
     // unit cost at very high Q; halfsat sets how fast it bites).
     quality_premium: { kappa: 0.45, halfsat: 35 },
+    // 11-18 (Devin: are we rewarding a low WTS?): about 30% of a drink's variable cost is the crew who brew and pour
+    // it (craft P&Ls: taproom labour ≈ 25–35% of variable cost). Staff need falls to 20% below the going pay as
+    // Taproom community grows (≈12% at T_emp 40), and rises above it when community runs down.
+    wts: { crew_share: 0.3, trust_max: 0.2, trust_halfsat: 20 },
   },
 
   capacity: {
@@ -246,7 +250,10 @@ export const defaultConfig: Config = {
     // and every raise also lifted the 3× debt cap (debt reached $4.9M). Half the valuation per
     // quarter, closed at ≤ 0. On game 1's data: that raise → $139k then closed; the modest
     // raises of firms still worth something pass untouched.
-    equity_gate: { enabled: true, max_fraction_of_valuation: 0.5, skip_founding_round: true },
+    // 11-18 break-it pass: "business" basis — investors cap a raise at half of what the business is worth WITHOUT the
+    // cash it holds. On the book basis cash raised lifted the next cap: a bot raising the most each quarter reached
+    // $500M+ in 16 rounds. On this semester's class decisions the change trims 3 of 31 student raises.
+    equity_gate: { enabled: true, max_fraction_of_valuation: 0.5, skip_founding_round: true, basis: "business" },
     fixed_overhead: 28_000, // $/qtr G&A: insurance, licenses, card fees, admin
     regulatory_burden_base: 16_000, // $/qtr compliance drag, relieved by T_gov
     regulatory_burden_halfsat: 10,
@@ -455,6 +462,7 @@ export const defaultConfig: Config = {
     // the interface takes to learn; flip it per-game, not here, until then.
     accumulation_window: { drop_first: 0, tail_only: null },
     terminal_weight: 0,
+    market_basis: "sold", // 11-18: share of drinks sold, not of shoppers' first choices (types.ts)
     penalties: [],
     // §5 benchmark bands — DISPLAY ONLY (gate §8.6: mutating these changes no score).
     // Derived 2026-08-11 via `npm run bands` (mixed population, 24 seeds, steady-state,
@@ -474,7 +482,9 @@ export const defaultConfig: Config = {
     benchmark_bands: {
       roic: { weak: 0.0, sound: 0.03, strong: 0.06 },
       interest_cover: { weak: 1.5, sound: 3.0, strong: 6.0 },
-      segment_share: { weak: 0.12, sound: 0.25, strong: 0.45 },
+      // 11-18: re-cut for market_basis "sold" (the share of drinks sold reads higher than first-choice share, which
+      // counted shoppers who bought nothing): `DW_MODULES=laborMarket,sustainability DW_BANDS_SCHEDULE=1 npm run bands`.
+      segment_share: { weak: 0.235, sound: 0.277, strong: 0.43 },
       intangible_index: { weak: 18, sound: 32, strong: 47 },
       stakeholder_mean: { weak: 10.5, sound: 18, strong: 28 },
     },
@@ -497,13 +507,13 @@ export const defaultConfig: Config = {
     // 0% of the field in "weak" against its own P30. The relative reading ("ahead of the
     // field") still works in round 0; the absolute one cannot, and the UI says so.
     benchmark_bands_by_round: [
-      { from_round: 0, bands: { roic: { weak: -0.051, sound: -0.051, strong: -0.051 }, segment_share: { weak: 0.239, sound: 0.239, strong: 0.239 }, intangible_index: { weak: 20.6, sound: 20.6, strong: 20.6 }, stakeholder_mean: { weak: 9.000, sound: 9.000, strong: 9.000 } } },
-      { from_round: 1, bands: { roic: { weak: 0.000, sound: 0.125, strong: 0.163 }, segment_share: { weak: 0.198, sound: 0.233, strong: 0.269 }, intangible_index: { weak: 24.6, sound: 25.4, strong: 26.4 }, stakeholder_mean: { weak: 9.591, sound: 11.8, strong: 12.5 } } },
-      { from_round: 2, bands: { roic: { weak: 0.000, sound: 0.038, strong: 0.089 }, segment_share: { weak: 0.174, sound: 0.220, strong: 0.283 }, intangible_index: { weak: 23.2, sound: 26.4, strong: 30.6 }, stakeholder_mean: { weak: 10.1, sound: 13.2, strong: 13.9 } } },
-      { from_round: 3, bands: { roic: { weak: 0.000, sound: 0.065, strong: 0.078 }, segment_share: { weak: 0.171, sound: 0.235, strong: 0.295 }, intangible_index: { weak: 26.2, sound: 30.5, strong: 35.7 }, stakeholder_mean: { weak: 10.6, sound: 15.7, strong: 16.8 } } },
-      { from_round: 4, bands: { roic: { weak: 0.000, sound: 0.038, strong: 0.066 }, segment_share: { weak: 0.142, sound: 0.230, strong: 0.308 }, intangible_index: { weak: 26.7, sound: 33.7, strong: 39.1 }, stakeholder_mean: { weak: 11.0, sound: 18.4, strong: 21.0 } } },
-      { from_round: 6, bands: { roic: { weak: 0.000, sound: 0.019, strong: 0.053 }, segment_share: { weak: 0.116, sound: 0.202, strong: 0.333 }, intangible_index: { weak: 25.3, sound: 34.9, strong: 45.4 }, stakeholder_mean: { weak: 11.8, sound: 23.3, strong: 28.4 } } },
-      { from_round: 10, bands: { roic: { weak: 0.000, sound: 0.024, strong: 0.063 }, segment_share: { weak: 0.100, sound: 0.263, strong: 0.624 }, intangible_index: { weak: 20.6, sound: 41.8, strong: 53.4 }, stakeholder_mean: { weak: 10.3, sound: 29.8, strong: 35.8 } } },
+      { from_round: 0, bands: { roic: { weak: -0.051, sound: -0.051, strong: -0.051 }, segment_share: { weak: 0.264, sound: 0.264, strong: 0.264 }, intangible_index: { weak: 20.6, sound: 20.6, strong: 20.6 }, stakeholder_mean: { weak: 9.000, sound: 9.000, strong: 9.000 } } },
+      { from_round: 1, bands: { roic: { weak: 0.000, sound: 0.125, strong: 0.163 }, segment_share: { weak: 0.231, sound: 0.258, strong: 0.267 }, intangible_index: { weak: 24.6, sound: 25.4, strong: 26.4 }, stakeholder_mean: { weak: 9.591, sound: 11.8, strong: 12.5 } } },
+      { from_round: 2, bands: { roic: { weak: 0.000, sound: 0.038, strong: 0.089 }, segment_share: { weak: 0.226, sound: 0.244, strong: 0.274 }, intangible_index: { weak: 23.2, sound: 26.4, strong: 30.6 }, stakeholder_mean: { weak: 10.1, sound: 13.2, strong: 13.9 } } },
+      { from_round: 3, bands: { roic: { weak: 0.000, sound: 0.065, strong: 0.078 }, segment_share: { weak: 0.227, sound: 0.241, strong: 0.276 }, intangible_index: { weak: 26.2, sound: 30.5, strong: 35.7 }, stakeholder_mean: { weak: 10.6, sound: 15.7, strong: 16.8 } } },
+      { from_round: 4, bands: { roic: { weak: 0.000, sound: 0.038, strong: 0.066 }, segment_share: { weak: 0.217, sound: 0.254, strong: 0.274 }, intangible_index: { weak: 26.7, sound: 33.7, strong: 39.1 }, stakeholder_mean: { weak: 11.0, sound: 18.4, strong: 21.0 } } },
+      { from_round: 6, bands: { roic: { weak: 0.000, sound: 0.019, strong: 0.053 }, segment_share: { weak: 0.202, sound: 0.264, strong: 0.297 }, intangible_index: { weak: 25.3, sound: 34.9, strong: 45.4 }, stakeholder_mean: { weak: 11.8, sound: 23.3, strong: 28.4 } } },
+      { from_round: 10, bands: { roic: { weak: 0.000, sound: 0.024, strong: 0.063 }, segment_share: { weak: 0.297, sound: 0.431, strong: 0.519 }, intangible_index: { weak: 20.6, sound: 41.8, strong: 53.4 }, stakeholder_mean: { weak: 10.3, sound: 29.8, strong: 35.8 } } },
     ],
   },
 };

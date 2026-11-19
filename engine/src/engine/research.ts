@@ -20,18 +20,18 @@ import { RNG, deriveSeed } from "../rng.js";
 
 export type Range = [number, number];
 export type HealthBand = "strong" | "steady" | "stretched" | "distressed";
-export type ResearchKey = "quality" | "brand" | "nps" | "unitCost" | "capacity" | "leverage" | "valuation" | "T_emp" | "T_inv" | "T_gov" | "salary" | "morale";
+export type ResearchKey = "quality" | "brand" | "nps" | "wtp" | "unitCost" | "capacity" | "leverage" | "valuation" | "T_emp" | "T_inv" | "T_gov" | "salary" | "morale";
 
 /** The report settings, or null when the game predates the three reports. */
 export const researchReports = (c: Config): { survey_sd: number; analyst_sd: number } | null => c.information?.reports ?? null;
 
 /** Relative error by measure, as a multiple of the survey's or the analyst's base error. */
 const SPREAD: Record<ResearchKey, { from: "survey" | "analyst"; k: number }> = {
-  quality: { from: "survey", k: 1 }, brand: { from: "survey", k: 1 }, nps: { from: "survey", k: 1 },
+  quality: { from: "survey", k: 1 }, brand: { from: "survey", k: 1 }, nps: { from: "survey", k: 1 }, wtp: { from: "survey", k: 0.5 }, // 11-16: the value stick's WTP, in dollars (half the survey error: ±10% at the clamp)
   unitCost: { from: "analyst", k: 0.75 }, capacity: { from: "analyst", k: 1 }, leverage: { from: "analyst", k: 2 }, valuation: { from: "analyst", k: 2 },
   T_emp: { from: "analyst", k: 1.5 }, T_inv: { from: "analyst", k: 1.5 }, T_gov: { from: "analyst", k: 1.5 }, salary: { from: "analyst", k: 1 }, morale: { from: "analyst", k: 1 },
 };
-const KEY_SALT: Record<ResearchKey, number> = { quality: 1, brand: 2, nps: 3, unitCost: 4, capacity: 5, leverage: 6, valuation: 7, T_emp: 8, T_inv: 9, T_gov: 10, salary: 11, morale: 12 };
+const KEY_SALT: Record<ResearchKey, number> = { quality: 1, brand: 2, nps: 3, unitCost: 4, capacity: 5, leverage: 6, valuation: 7, T_emp: 8, T_inv: 9, T_gov: 10, salary: 11, morale: 12, wtp: 13 };
 const firmIndex = (id: FirmId): number => Number(id.replace(/[^0-9]/g, "")) || 0;
 
 /** This measure's relative error (a standard deviation) under these settings. */

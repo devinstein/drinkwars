@@ -8,7 +8,7 @@
 // Game logic comes from ./drinkwars-core.js (esbuild bundle of the orchestrator
 // + Supabase adapter + engine). Rebuild it with `npm run build:edge` in server/.
 import { createClient } from "@supabase/supabase-js";
-import { GameOrchestrator, SupabaseAdapter, buildInstructorDashboard, dashboardToCsv, randomBreweryNames, renameFirms, visibleEvents, pactParties, resolveConfig, roleBriefings, summarizeAgreementsFor, summarizeLobbying, withRequestCache, deepMerge, generateHiringMarket, projectMarkets, projectMarketSizing, projectFirms, projectResearch, projectShocks, projectHistory, getSeatForecasts, submitForecasts, getGameForecasts } from "./drinkwars-core.js";
+import { GameOrchestrator, SupabaseAdapter, buildInstructorDashboard, dashboardToCsv, randomBreweryNames, renameFirms, visibleEvents, pactParties, resolveConfig, roleBriefings, summarizeAgreementsFor, summarizeLobbying, withRequestCache, deepMerge, generateHiringMarket, projectMarkets, projectMarketSizing, projectValueStick, researchReports, projectFirms, projectResearch, projectShocks, projectHistory, getSeatForecasts, submitForecasts, getGameForecasts } from "./drinkwars-core.js";
 
 const url = Deno.env.get("SUPABASE_URL")!;
 const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -129,6 +129,7 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
   let lobbyInitiatives: any[] = [];
   let markets: any[] = []; // MOD-B01 per-team city view (same projection as single-player)
   let sizing: any = null; // DW-084 TAM / SAM / SOM
+  let valueStick: any = null; // 11-16 value stick (twin of transport.ts)
   let firms: any[] = []; // public snapshots; rivals' private fields (incl. roster) redacted unless this team bought research
   let research: any = null; // 11-07: the three research reports (twin of transport.ts) — only for a team whose plan buys them
   let shocks: any[] = [];
@@ -153,6 +154,8 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
         markets = projectMarkets(ws.state, config, own.id, pub.round, lastFull?.result.firm_results ?? [], nameOf);
         // DW-084: TAM / SAM / SOM from the last resolved round — market totals only, no rival's own numbers.
         sizing = projectMarketSizing(config, own.id, lastFull?.result ?? null, (id: string) => config.modules?.geography?.markets?.find((m: any) => m.id === id)?.label ?? id);
+        const rep = researchReports(config); // 11-16 twin of transport.ts: WTP only with market research
+        valueStick = projectValueStick(config, own.id, allResults, ws.state.firms.find((f: any) => f.id === own.id), rep && decision?.decision?.buy_info ? { seed: ws.state.seed, round: ws.state.round, sd: rep.survey_sd } : null);
         // reveal = this team bought market research this round → unlocks rivals' rosters (poaching) + private stocks.
         firms = projectFirms(ws.state, config, own.id, lastFull?.result.firm_results ?? [], !!decision?.decision?.buy_info, nameOf);
         if (decision?.decision?.buy_info) research = projectResearch(allResults, ws.state, config, own.id, nameOf);
@@ -164,7 +167,7 @@ async function viewFor(gameId: string, teamId: string, userId?: string) {
   return {
     round: pub.round, lifecycle: pub.lifecycle, nRounds: game?.n_rounds, complete: pub.lifecycle === "complete",
     segments: pub.segments, own, ownResult, unitCostEst, fx, names, styles, agreements, lobbyInitiatives,
-    markets, sizing, firms, shocks, history, hiringMarket, seats,
+    markets, sizing, valueStick, firms, shocks, history, hiringMarket, seats,
     ...(teamPlan ? { teamPlan } : {}),
     standing, draft, infoActive: !!decision?.decision?.buy_info, research, deadlineAt: game?.deadline_at ?? null,
     briefings: briefings.map((b) => ({ ...b, lines: b.lines.map((l: string) => renameFirms(l, names)) })),

@@ -40,8 +40,8 @@ export function RoundTable({ view, rationale, seatRole, standing, onFocusDesk, i
         <Eyebrow>Round table</Eyebrow>
         <InfoDot title="The huddle" align="right">
           {mpSeats
-            ? "Each seat submits its desk; the engine composes one plan from all of them, and this is that plan — every value, who it came from, and any entry that will NOT run. Anything you change on your desk is used; a lever you leave at last round's value follows the CEO's call."
-            : "You hold every chair. Make each officer's call (jot it in their cockpit), then commit as the firm. In team play these become each teammate's proposal to the table."}
+            ? "Each seat submits its desk, and the engine combines them into one plan. This is that plan: every value, who it came from, and any entry that will NOT run. Anything you change on your desk is used. A lever you leave at last round's value follows the CEO's call."
+            : "You hold every chair. Make each officer's call on their desk, then commit as the firm. In team play these become each teammate's proposal."}
         </InfoDot>
       </div>
 
@@ -156,7 +156,7 @@ function TeamPlanBoard({ view, seatRole, standing, infoCost = 0 }: { view: GameV
                           <span className="text-inksoft">{r.label}</span>
                           <span className="font-semibold text-ink">{t(r.field, r.value)}</span>
                           <span className="flex-1" />
-                          <span className="font-mono text-[0.56rem] uppercase tracking-wide" style={{ color: r.author?.me ? "var(--color-hop)" : "var(--color-inksoft)" }} title={r.author ? (r.authorChanged ? "changed this round" : "submitted unchanged") : "nobody set it; last round's plan carries"}>
+                          <span className="font-mono text-[0.56rem] uppercase tracking-wide" style={{ color: r.author?.me ? "var(--color-hop)" : "var(--color-inksoft)" }} title={r.author ? (r.authorChanged ? "changed this round" : "submitted unchanged") : "nobody set it; last round's plan stays"}>
                             {r.author ? `${r.authorChanged ? "✎ " : ""}${who(r.author)}` : "carried"}
                           </span>
                         </div>
@@ -197,12 +197,13 @@ function TeamPlanBoard({ view, seatRole, standing, infoCost = 0 }: { view: GameV
                 <span className="font-mono text-[0.56rem] font-bold uppercase tracking-wide text-inksoft">Cash check</span>
                 <span className="text-ink">committed ≈ {fmt.money(cash.out)}</span>
                 <span className="text-ink">financing +{fmt.money(cash.inflow)}</span>
-                {cash.reserve >= 0.5 && <span className="text-ink">running costs −{fmt.money(cash.reserve)}</span>}
+                {cash.reserve >= 0.5 && <span className="text-ink">operating costs −{fmt.money(cash.reserve - cash.interest)}</span>}
+                {cash.interest >= 0.5 && <span className="text-ink">interest −{fmt.money(cash.interest)}</span>}
                 <span className="font-semibold" style={{ color: cash.after < 0 ? "var(--color-brick)" : "var(--color-hop)" }}>
                   {cash.after < 0 ? `short ${fmt.money(-cash.after)}` : `≈ ${fmt.money(cash.after)} left`}
                 </span>
               </div>
-              {cash.after < 0 && <div className="mt-0.5 text-[0.66rem] text-brick">The plan spends more than cash + the financing the bank and investors will actually grant{cash.reserve >= 0.5 ? ", once the quarter's running costs are set aside" : ""} — trim a desk or have the CFO draw funds.{view.finance?.affordability_guard ? (money && money.cuts.length ? ` Left as is, the round cuts: ${money.cuts.map((x) => (x.kept >= 0.5 ? `${x.label} ${fmt.money(x.asked)} → ${fmt.money(x.kept)}` : `${x.label} (${fmt.money(x.asked)}) dropped`)).join("; ")}.` : " Left as is, the round trims it to fit (dividend → repayment → tanks → builds → hires) and says so.") : ""} {cash.reserve >= 0.5 ? "(Brewing is paid from sales.)" : "(Estimate: payroll & production costs not included.)"}</div>}
+              {cash.after < 0 && <div className="mt-0.5 text-[0.66rem] text-brick">The plan spends more than cash + the financing the bank and investors will actually grant{cash.reserve >= 0.5 ? ", once the quarter's operating costs are set aside" : ""} — trim a desk or have the CFO draw funds.{view.finance?.affordability_guard ? (money && money.cuts.length ? ` Left as is, the round cuts: ${money.cuts.map((x) => (x.kept >= 0.5 ? `${x.label} ${fmt.money(x.asked)} → ${fmt.money(x.kept)}` : `${x.label} (${fmt.money(x.asked)}) dropped`)).join("; ")}.` : " Left as is, the round trims it to fit (dividend → repayment → tanks → builds → hires) and says so.") : ""} {cash.reserve >= 0.5 ? "(Brewing is paid from sales.)" : "(Estimate: payroll & production costs not included.)"}</div>}
             </div>
           )}
         </div>

@@ -1,13 +1,13 @@
 import type { CSSProperties, ReactNode } from "react";
 
-export function Card({ children, className = "", style }: { children: ReactNode; className?: string; style?: CSSProperties }) {
+export function Card({ children, className = "", style, dw }: { children: ReactNode; className?: string; style?: CSSProperties; dw?: string }) {
   // `min-w-0` is load-bearing, not decoration: a Card is usually a grid or flex ITEM, and those
   // default to `min-width: auto`, meaning they refuse to shrink below their content. On a phone
   // that made the statements cards 459px wide inside a 335px column — so the `overflow-x-auto`
   // wrapper INSIDE them never had to scroll, and the whole page scrolled sideways by 95px
   // instead. With this, the page fits and the table scrolls within its own card.
   // DW-077: `style` lets the desk card carry its seat-coloured top border.
-  return <div className={`card min-w-0 p-4 ${className}`} style={style}>{children}</div>;
+  return <div className={`card min-w-0 p-4 ${className}`} style={style} data-dw={dw}>{children}</div>; // dw: a stable hook (the guided round points at it)
 }
 
 export function Eyebrow({ children }: { children: ReactNode }) {

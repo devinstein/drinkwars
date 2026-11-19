@@ -199,8 +199,8 @@ await waitText(ceo, /set this for the empty CHRO desk/, 20000).catch(() => {}); 
 const ceoTxt = await text(ceo);
 ok(/Employee relations[\s\S]{0,120}set this for the empty CHRO desk[\s\S]{0,200}theirs — change it, or Keep mine, to use yours/i.test(ceoTxt) && /\$21,000/.test(ceoTxt), "CEO's Reconcile names the cover in plain words", ceoTxt.match(/Employee relations[^\n]*\n[^\n]*/)?.[0]?.slice(0, 220));
 // DW-081: the CFO's research purchase is the TEAM's — the CEO's form credits the buyer; it is nobody's cover row
-await waitText(ceo, /Purchased for this round by/, 15000).catch(() => {});
-ok(await has(ceo, /Purchased for this round by CFO Ben Cfo/) && !(await has(ceo, /Market research\s*\n[^\n]*(set this for|suggested|covers)/)), "research is the team's purchase: the CEO's form credits the CFO, and the panel lists no research cover", (await text(ceo)).match(/Purchased for this round[^\n]*/)?.[0]?.slice(0, 120));
+await waitText(ceo, /Bought for this round by/, 15000).catch(() => {});
+ok(await has(ceo, /Bought for this round by CFO Ben Cfo/) && !(await has(ceo, /Market research\s*\n[^\n]*(set this for|suggested|covers)/)), "research is the team's purchase: the CEO's form credits the CFO, and the panel lists no research cover", (await text(ceo)).match(/Bought for this round[^\n]*/)?.[0]?.slice(0, 120));
 // DW-080/081: the CEO submits again WITHOUT touching the covers — they stay the CFO's (an unchanged
 // resubmit never erases a cover, and the CEO's form never copied them). The dividend stays the CFO's too.
 await clickText(ceo, "my desk");

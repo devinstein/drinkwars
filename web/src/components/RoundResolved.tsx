@@ -16,7 +16,7 @@
 import type { GameView } from "../game/controller.js";
 import type { ScoredCall, SeatForecasts } from "drinkwars-server";
 import { ROLE_DESK } from "drinkwars-engine";
-import { SHOCK_META, fmt, marketName } from "../labels.js";
+import { SHOCK_META, fmt, marketName, minus } from "../labels.js";
 import { roundNews } from "./eventFeed.js";
 import { tankUnitsOf } from "../lib/moneyCheck.js";
 import type { GameEvent } from "./EventModal.js";
@@ -39,14 +39,14 @@ const seatColor = (role: string | null | undefined): string => {
 /** "On your desk" — one short line per market event × desk. Keyed by the shock type (via its
  *  SHOCK_META label) or the event title; falls back to a line per event kind. */
 const DESK_LINE: Record<string, Partial<Record<string, string>>> = {
-  water: { finance: "Unit cost rose with the shortage — watch interest coverage and the cash line.", operations: "Input costs spiked; every drink brewed cost more this round.", commercial: "Costs rose for everyone — rivals may pass it on in price; yours is a choice.", people: "No direct hit to the roster; the margin squeeze may tighten the hiring budget.", all: "Input costs spiked industry-wide; margin took the hit." },
-  harvest: { finance: "Grain and hops cost more — the cost line moved, not the price line.", operations: "Input costs rose with the failed harvest; unit cost followed.", commercial: "Everyone's costs rose — watch who passes it on to shoppers.", people: "No direct hit to the roster; margin pressure may limit hiring.", all: "Input costs rose industry-wide with the failed harvest." },
-  co2: { finance: "Capacity was constrained — revenue, not cost, is where it shows.", operations: "Tank capacity was squeezed; some demand went unserved.", commercial: "Supply was tight — shoppers you couldn't serve went to rivals.", people: "No direct hit to the roster; output was capped by the squeeze.", all: "Capacity was constrained industry-wide; unserved demand went elsewhere." },
-  demand_slump: { finance: "Revenue softened across the board — the cash line felt it.", operations: "Shoppers thinned out; tanks ran below plan.", commercial: "Demand fell for every category — price and brand mattered more.", people: "Fewer sales to carry payroll; watch the margin.", all: "Demand softened across the board." },
+  water: { finance: "Unit cost rose with the shortage — watch interest coverage and the cash line.", operations: "Input costs spiked; every drink brewed cost more this round.", commercial: "Costs rose for everyone. Rivals may raise prices; whether you do is your call.", people: "No direct effect on staff. Lower margins may leave less cash for hiring.", all: "Input costs spiked industry-wide; margin took the hit." },
+  harvest: { finance: "Grain and hops cost more, so each drink cost more to brew.", operations: "Input costs rose with the failed harvest; unit cost followed.", commercial: "Everyone's costs rose. Watch which rivals raise their prices.", people: "No direct hit to the roster; margin pressure may limit hiring.", all: "Input costs rose industry-wide with the failed harvest." },
+  co2: { finance: "Capacity was limited. It shows up in revenue, not cost.", operations: "Usable tank capacity fell, so some demand went unserved.", commercial: "Supply was tight — shoppers you couldn't serve went to rivals.", people: "No direct effect on staff. Output was limited this round.", all: "Capacity was constrained industry-wide; unserved demand went elsewhere." },
+  demand_slump: { finance: "Revenue fell across the board, and so did cash.", operations: "Fewer shoppers came, so tanks ran below plan.", commercial: "Demand fell for every category — price and brand mattered more.", people: "Fewer sales to pay for payroll. Watch the margin.", all: "Demand softened across the board." },
   craft_wave: { finance: "Revenue surged with the festival crowd.", operations: "Shoppers surged — capacity was the constraint.", commercial: "Demand surged across categories; brand and price shaped who won it.", people: "A busy quarter for the crew.", all: "Demand surged across the board." },
-  health_shift: { finance: "Legacy-beer revenue weakened; the mix moved.", operations: "Shoppers moved toward lighter styles — watch the category mix.", commercial: "Drinkers turned from legacy beer; positioning matters more.", people: "No direct hit to the roster; the mix shift is a strategy question.", all: "Drinkers turned away from legacy beer." },
-  na_moment: { finance: "The new category drew demand — revenue follows whoever is positioned there.", operations: "Demand for the new category jumped; capacity there pays.", commercial: "Non-alcoholic went mainstream; the category's shoppers multiplied.", people: "No direct hit to the roster.", all: "Demand for the new category jumped." },
-  "Tastes are shifting": { finance: "No hit to finance this round. Quality spending now pays off more, so expect a request to fund more of it.", operations: "Quality is gaining ground — recipe investment pays off more from here.", commercial: "Shoppers weigh quality more now; brand alone carries less.", people: "No direct hit; quality-minded hires are worth more now.", all: "Quality is gaining ground in the mainstream — recipe spend pays off more." },
+  health_shift: { finance: "Revenue from traditional beer fell, and your sales mix shifted.", operations: "Shoppers moved toward lighter styles — watch the category mix.", commercial: "Drinkers turned from legacy beer; positioning matters more.", people: "No direct hit to the roster; the mix shift is a strategy question.", all: "Drinkers turned away from legacy beer." },
+  na_moment: { finance: "The new category drew shoppers. Its revenue goes to the breweries that sell in it.", operations: "Demand for the new category jumped; capacity there pays.", commercial: "Non-alcoholic went mainstream; the category's shoppers multiplied.", people: "No direct hit to the roster.", all: "Demand for the new category jumped." },
+  "Tastes are shifting": { finance: "No hit to finance this round. Quality spending now pays off more, so expect a request to fund more of it.", operations: "Quality is gaining ground — recipe investment pays off more from here.", commercial: "Shoppers weigh quality more now; brand alone counts for less.", people: "No direct hit; quality-minded hires are worth more now.", all: "Quality is gaining ground in the mainstream — recipe spend pays off more." },
 };
 /** A regional shock hit only producers in one market, scaled by the share of production there. */
 const regionalLine = (region: string, exposure: number | undefined): string =>
@@ -54,14 +54,14 @@ const regionalLine = (region: string, exposure: number | undefined): string =>
   : exposure <= 0 ? `It hit breweries producing in ${region} only — none of yours is there, so your costs held.`
   : exposure >= 0.995 ? `It hit breweries producing in ${region} — all of your production is there, so you took the full hit.`
   : `It hit breweries producing in ${region} — about ${Math.round(exposure * 100)}% of yours is there, so you took that share of it.`;
-const KIND_LINE: Record<string, string> = { shock: "A market disruption this round — the numbers below carry it.", market: "A move in the market — see the Dispatch for the full story." };
+const KIND_LINE: Record<string, string> = { shock: "A market shock hit this round. Its effects are in the numbers below.", market: "Something changed in the market. The Dispatch has the full story." };
 const shockKey = (e: GameEvent): string | null => {
   for (const [k, m] of Object.entries(SHOCK_META)) if (m.label === e.title) return k;
   return e.title in DESK_LINE ? e.title : null;
 };
 
 const staffOf = (t: { headcount?: number; keyHires?: number } | undefined): number | null => (t && (t.headcount != null || t.keyHires != null) ? (t.headcount ?? 0) + (t.keyHires ?? 0) : null);
-const pct1 = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "—" : `${n.toFixed(1)}%`);
+const pct1 = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "—" : `${minus(n.toFixed(1))}%`);
 /** DW-080: ONE share across categories — shoppers who chose you ÷ shoppers in the categories you
  *  sell in (each category's total = your shoppers ÷ your share there). It was the SUM of the
  *  per-category shares: 25% of lagers + 20% of craft read "45%". Older payloads fall back. */
@@ -73,7 +73,7 @@ const shopperShare = (t: { share: number; categories?: Record<string, { wanted: 
   return total > 0 ? (won / total) * 100 : 0;
 };
 const cov = (ebit: number | undefined, interest: number | undefined): string => (ebit == null || interest == null ? "—" : interest <= 0 ? "no interest" : ebit / interest > 99 ? ">99×" : `${(ebit / interest).toFixed(1)}×`);
-const marginOf = (h: { revenue?: number; gross?: number } | undefined): number | null => (h?.revenue ? ((h.gross ?? 0) / h.revenue) * 100 : null);
+const marginOf = (h: { revenue?: number; gross?: number } | undefined): number | null => (h?.revenue && h.revenue >= 1 && Math.abs((h.gross ?? 0) / h.revenue) <= 10 ? ((h.gross ?? 0) / h.revenue) * 100 : null); // 11-16: no margin on ~$0 of revenue
 
 interface DeskRow { label: string; before: string; after: string; tone: "up" | "down" | "flat" }
 const tone = (before: number | null | undefined, after: number | null | undefined, lowerIsBetter = false): DeskRow["tone"] => {
@@ -121,7 +121,7 @@ function deskRows(view: GameView, desk: string): DeskRow[] {
     default: return [
       row("Revenue", prev?.revenue, cur?.revenue, money),
       row("Net income", prev?.netIncome, cur?.netIncome, money),
-      row("Season score", prev?.score, cur?.score, (n) => n.toFixed(3)), // the Standings precision — at 1 dp a small dip read "0.1 → 0.1" in red
+      row("Season score", prev?.score, cur?.score, (n) => minus(n.toFixed(3))), // the Standings precision — at 1 dp a small dip read "0.1 → 0.1" in red
     ];
   }
 }
@@ -146,7 +146,7 @@ export function RoundResolved({ view, round, mp, seatRole, calls, onDismiss, onS
   const seat = seatColor(seatRole);
   const desk = seatRole ? (ROLE_DESK[seatRole] ?? "all") : "all";
 
-  const move = !prev ? "First round in the books." : prev.rank === rank ? `Held at #${rank}.` : prev.rank > rank ? `Up ${prev.rank - rank === 1 ? "one place" : `${prev.rank - rank} places`} from #${prev.rank}.` : `Down ${rank - prev.rank === 1 ? "one place" : `${rank - prev.rank} places`} from #${prev.rank}.`;
+  const move = !prev ? "First round done." : prev.rank === rank ? `Held at #${rank}.` : prev.rank > rank ? `Up ${prev.rank - rank === 1 ? "one place" : `${prev.rank - rank} places`} from #${prev.rank}.` : `Down ${rank - prev.rank === 1 ? "one place" : `${rank - prev.rank} places`} from #${prev.rank}.`;
   const lead = leader ? (leader.isYou ? "You lead the field." : `${leader.name} leads.`) : "";
 
   const kpis = [
@@ -218,13 +218,13 @@ export function RoundResolved({ view, round, mp, seatRole, calls, onDismiss, onS
               {events.map((e) => {
                 const key = shockKey(e);
                 const line = (e.region ? regionalLine(e.region, view.shocks.find((s) => s.typeId === key && marketName(s.region, s.regionLabel) === e.region)?.exposure) : null)
-                  ?? (key && DESK_LINE[key]?.[desk]) ?? (key && DESK_LINE[key]?.all) ?? KIND_LINE[e.kind] ?? "";
+                  ?? (key && DESK_LINE[key]?.[desk]) ?? (key && DESK_LINE[key]?.all) ?? (key ? KIND_LINE[e.kind] : null) ?? ""; // 11-16: no desk line → the event's own story
                 return (
                   <div key={e.id} className="grid grid-cols-[8px_minmax(0,1fr)] gap-3.5">
                     <span className="rounded-[4px]" style={{ background: e.kind === "shock" ? "var(--color-brick)" : "var(--color-gold)" }} />
                     <div className="grid gap-0.5">
                       <span className="display text-[1.15rem] font-semibold sm:text-[1.3rem]">{e.title || "Market move"}</span>
-                      <span className="text-[0.95rem] leading-snug sm:text-[1.05rem]"><b style={{ color: `color-mix(in srgb, ${seat} 55%, var(--color-ink))` }}>On your desk:</b> {line || e.body}</span>
+                      <span className="text-[0.95rem] leading-snug sm:text-[1.05rem]">{line ? <><b style={{ color: `color-mix(in srgb, ${seat} 55%, var(--color-ink))` }}>On your desk:</b> {line}</> : e.body}</span>
                     </div>
                   </div>
                 );
@@ -281,7 +281,7 @@ export function RoundResolved({ view, round, mp, seatRole, calls, onDismiss, onS
                   </div>
                 )}
               </div>
-              {!callsOn && <div className="border-b border-dashed border-line px-5 py-5 text-[1.05rem] leading-snug text-inksoft">This game runs without calls. The numbers on the left are the whole story.</div>}
+              {!callsOn && <div className="border-b border-dashed border-line px-5 py-5 text-[1.05rem] leading-snug text-inksoft">This game runs without calls. Your results are on the left.</div>}
               {callsOn && settled.length === 0 && <div className="border-b border-dashed border-line px-5 py-5 text-[1.05rem] leading-snug text-inksoft">You made no calls in Round {round + 1}, so there's nothing to settle. Your record holds at {record}.</div>}
               {settled.map((c) => {
                 const v = c.verdict;

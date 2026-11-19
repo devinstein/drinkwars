@@ -326,7 +326,7 @@ export function analyzeDebrief(j: InstructorDashboard, r?: number | null): Debri
     const short = [...(p.cash < thr ? [`cash ${usd(p.cash)}`] : []), ...(p.ebit < 0 ? [`operating loss ${usd(p.ebit)}`] : p.coverage < 1 ? [`coverage ${fx(p.coverage, 1)}×`] : [])];
     return { name: nm(fid), npc: npc.has(fid), why: why.join("; ") || "credit-rationed", short: short.join(" · ") || "credit-rationed", n: p.belowSafety ? n : 0, acquirable: p.belowSafety && n >= ACQUIRABLE,
       clock: p.belowSafety ? `quarter ${n} of ${RUNWAY}` + (n >= ACQUIRABLE ? " — acquirable now" : "") : "credit-rationed only",
-      loss: p.ebit < 0 ? `gross profit ${usd(p.gross)} didn't cover ${usd(p.gross - p.ebit)} of running costs` : null,
+      loss: p.ebit < 0 ? `gross profit ${usd(p.gross)} didn't cover ${usd(p.gross - p.ebit)} of operating costs` : null,
       coverage: p.coverage, interest: p.interest };
   });
   trouble.sort((a, b) => b.n - a.n || Number(a.npc) - Number(b.npc) || cmpStr(a.name, b.name)); // longest clock first; teams before NPCs
@@ -450,8 +450,8 @@ export function analyzeDebrief(j: InstructorDashboard, r?: number | null): Debri
     const mr = mRank.get(fid)!, vr = vRank.get(fid)!;
     if (n >= 5 && band < mr && mr <= n - band && band < vr && vr <= n - band) cands.push([["CEO"], "You're neither the cheapest nor the most premium. Which lane?",
       `Margin per can #${mr} of ${n} ($${fx(perCan(p, p.gross), 2)}) · cans #${vr} of ${n} (${k(sold)}).`]);
-    if (p.ebit < 0 && p.gross > 0) cands.push([["CEO", "CFO"], "Gross profit didn't cover running costs. Which programs earn their keep?",
-      `Gross profit ${usd(p.gross)} − running costs ${usd(p.gross - p.ebit)} = operating ${usd(p.ebit)}.`]);
+    if (p.ebit < 0 && p.gross > 0) cands.push([["CEO", "CFO"], "Gross profit didn't cover operating costs. Which programs earn their keep?",
+      `Gross profit ${usd(p.gross)} − operating costs ${usd(p.gross - p.ebit)} = operating ${usd(p.ebit)}.`]);
     if (peopleOn) {
       const peak = peakOf(hist(fid).map((h) => h.T_emp));
       const med = rivals(fid, (x) => x.T_emp);
@@ -474,7 +474,7 @@ export function analyzeDebrief(j: InstructorDashboard, r?: number | null): Debri
       ["Avg price / can", (x) => perCan(x, x.revenue), d2], ["Unit cost / can", (x) => x.unitCost, d2],
       ["Margin / can", (x) => perCan(x, x.gross), d2], ["Cans sold", (x) => x.totalQSold, k]];
     if (rich) rows.push(["Shoppers wanted", wanted, k]);
-    rows.push(["Gross profit", (x) => x.gross, usd], ["Running costs", (x) => x.gross - x.ebit, usd], ["Operating profit", (x) => x.ebit, usd], ["Cash", (x) => x.cash, usd],
+    rows.push(["Gross profit", (x) => x.gross, usd], ["Operating costs", (x) => x.gross - x.ebit, usd], ["Operating profit", (x) => x.ebit, usd], ["Cash", (x) => x.cash, usd],
       ["Quality", (x) => x.Q, (v) => fx(v, 0)], ["Brand", (x) => x.B, (v) => fx(v, 0)]);
     if (peopleOn) rows.push(["Employee trust", (x) => x.T_emp, (v) => fx(v, 1)]);
     const out: DebriefMetric[] = [{ label: "Season rank", you: `#${p.rank} of ${n}`, field: "", last: q ? `#${q.rank}` : "" }];

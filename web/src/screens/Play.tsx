@@ -29,12 +29,14 @@ import { Emblem } from "../components/FacilityGlyph.js";
 import { firmColor, firmEmblem } from "../lib/teamColors.js";
 import { DESK_LEVERS, ROLE_DESK } from "drinkwars-engine";
 import { ackConflict, cancelsRequest, computeConflicts, dropsTheirs, leverText, offDeskEdits, openConflicts, same, teamOutcome } from "../lib/reconcile.js";
-import { moneyOutcome, tankUnitsOf } from "../lib/moneyCheck.js";
+import { moneyOutcome, priceLines, tankUnitsOf } from "../lib/moneyCheck.js";
 import { buildKey, cityActionsFrom, dedupeBuilds, keepUntouchedMarkets, marketPresenceFrom, marketsTouched, poachesFrom, type CityActions, type CityBuildOrder } from "../game/cityActions.js";
 import { CallsTickets, useCallsDesk, type CallsClient } from "../components/Calls.js"; // DW-077 calls tickets
 import { RoundResolved } from "../components/RoundResolved.js"; // DW-077 results page
 import { ModeToggle, useInlineModeToggle } from "../components/ModeToggle.js";
 import { SubmitConfirm } from "../components/SubmitConfirm.js";
+import { ValueStickCard } from "../components/ValueStick.js"; // 11-16 value stick (Review tab)
+import { GuidedRound } from "../components/GuidedRound.js"; // 11-16 guided first round
 /** DW-082: off-desk levers that follow the plan even when the form lacks the key (see the DW-050 follow). */
 const MARKET_KEYS = new Set(["market_presence", "market_supply"]);
 
@@ -49,7 +51,7 @@ const isWebdriver = () => typeof navigator !== "undefined" && !!(navigator as { 
 /** Primary destinations (design: Review · Decide · Map). Distribution is a drawer
  *  inside Map / a panel inside Decide, NOT a destination. */
 type Dest = "review" | "decide" | "map";
-type RTab = "statements" | "operations" | "dispatch" | "trends" | "field";
+type RTab = "statements" | "operations" | "value" | "dispatch" | "trends" | "field";
 
 const NAV_ICON: Record<Dest, JSX.Element> = {
   review: <path d="M4 5h13v14H5a1 1 0 0 1-1-1ZM17 8h3v9a2 2 0 0 1-2 2M7 8h7M7 11h7M7 14h4" />,
@@ -101,7 +103,13 @@ export function Play({
   gameKey = "solo",
   notices,
   utilities,
+  guide = false,
+  onBuyInfo,
 }: {
+  /** 11-16: solo only — the tick buys research at once (the reports open), so the purchase stands for the round. */
+  onBuyInfo?: () => void | Promise<void>;
+  /** 11-16: the practice game from the Lobby's "Learn the game" — opens the guided first round (and a Tour button to replay it). */
+  guide?: boolean;
   notices?: ReactNode; // DW-078: the host's one-off notices (return-code card, submit errors, receipts) — under the wire strip
   utilities?: ReactNode; // DW-078: extra small buttons for the header's utility line (e.g. "Return code")
   calls?: CallsClient | null; // DW-077: the calls channel (student client / solo controller); absent ⇒ no tickets, no settled column
@@ -136,9 +144,9 @@ export function Play({
   const [desk, setDesk] = useState<DeskId>(seatRole ? ((ROLE_DESK[seatRole] as DeskId) ?? "all") : "all");
   const [infoPreview, setInfoPreview] = useState(false);
   // Solo play reveals the research the moment it is ticked (there is no server round-trip to
-  // wait for), so an untick after reading was a free report. Once revealed, the purchase stands
-  // for the round — you can't hand back a report you've read. Multiplayer is unaffected: there
-  // the intel only unlocks when the submitted plan carries the purchase.
+  // wait for), so an untick after reading was a free report. The tick calls `onBuyInfo`, the
+  // controller records the purchase, and `view.infoActive` locks the box like the server's ratchet.
+  // Multiplayer: the intel only unlocks when the submitted plan carries the purchase.
   // Locked by SERVER TRUTH, not by the local checkbox (DW-061). `infoActive` is true once the
   // firm's COMPOSED plan carries the purchase — the same moment the intel is served and the
   // same moment the server's ratchet engages — so the box can never disagree with the server
@@ -147,8 +155,12 @@ export function Play({
   const infoLocked = !!view.infoActive;
   const onInfoChange = useCallback((bought: boolean) => {
     setInfoPreview(bought);
-  }, []);
+    if (bought && !mp) void onBuyInfo?.(); // solo: the reports open now, so the purchase stands (no free untick)
+  }, [mp, onBuyInfo]);
   const [detailFirm, setDetailFirm] = useState<string | null>(null);
+  // 11-16 break-it pass: a solo game lives in memory, so one stray click on Leave threw the season away. Ask once, inline.
+  const [leaveArmed, setLeaveArmed] = useState(false);
+  useEffect(() => { if (!leaveArmed) return; const t = setTimeout(() => setLeaveArmed(false), 5000); return () => clearTimeout(t); }, [leaveArmed]);
   // Talent raids are lifted here so they can be made from a rival's dossier AND the
   // decision form — both write the same list, injected into the decision at submit.
   const [poaches, setPoaches] = useState<{ firm: string; employee: string; offer: number }[]>([]);
@@ -158,6 +170,7 @@ export function Play({
   // raids, Keep mine) marks it; a landed submit and a new round clear it.
   const [editedSinceSubmit, setEditedSinceSubmit] = useState(false);
   const [submittedHere, setSubmittedHere] = useState(false);
+  const sentAt = useRef<number | null>(null); // 11-16: when this browser's last submit landed (the rail's receipt)
   const markEdited = useCallback(() => setEditedSinceSubmit(true), []);
   const editDecision = useCallback((d: FirmDecision) => { setEditedSinceSubmit(true); setDecision(d); }, []);
   const editCity = useCallback((u: (a: CityActions) => CityActions) => { setEditedSinceSubmit(true); setCityActions(u); }, []);
@@ -188,7 +201,15 @@ export function Play({
   // The form as this round started (design pass 2b): a lever the student moves off it glows amber.
   const [roundBase, setRoundBase] = useState<FirmDecision | null>(null);
   const mySubmitted = !!view.teamPlan?.seats.find((x) => x.me)?.submitted;
-  const unsent = editedSinceSubmit && (mySubmitted || submittedHere);
+  // 11-16 (post-mortems): the rail's "sent" receipt — class games only (solo's Brew runs the round at once). A team seat
+  // reads the server's record; a one-student firm, this browser's landed submit or the draft the server resumed.
+  const meSeat = view.teamPlan?.seats.find((x) => x.me);
+  const sentInfo = !mp ? null
+    : meSeat ? (meSeat.submitted ? { at: (meSeat as { updated_at?: number | null }).updated_at ?? sentAt.current } : null)
+    : submittedHere || (view as unknown as { draft?: FirmDecision | null }).draft ? { at: sentAt.current } : null;
+  // Class games only: solo's Brew runs the round at once, so there is never a sent-but-not-run plan (11-16: the
+  // landed flag outlived the round there, and a phone read "Changed since you submitted" on every solo edit).
+  const unsent = !!mp && editedSinceSubmit && (mySubmitted || submittedHere);
   useEffect(() => { onUnsentChange?.(unsent); }, [unsent, onUnsentChange]);
   // Per-desk rationale note (the §4.4 "your call" field) — a thinking aid this pass; the seam
   // for the team huddle. Keyed by desk so switching cockpits keeps each officer's note.
@@ -209,6 +230,7 @@ export function Play({
     setCityActions(cityActionsFrom(view, stored));
     setEditedSinceSubmit(false);
     setSubmittedHere(false);
+    sentAt.current = null;
     let live = true;
     defaultDecision().then((dd) => {
       if (live) {
@@ -283,6 +305,7 @@ export function Play({
     }
   }, [resolveSig]);
   const dismissResolved = (then?: () => void) => { if (resolvedOpen != null) ack(gameKey, resolvedOpen); setResolvedOpen(null); then?.(); };
+  const [tourStep, setTourStep] = useState<number | null>(guide ? 0 : null); // 11-16 guided first round
   // DW-077 calls: tickets in the commit panel while the round is open; the settled column on the results page.
   const roundOpen = view.lifecycle === "open" && view.ownActive && !view.complete;
   const callsDesk = useCallsDesk(calls, view.round, roundOpen);
@@ -375,7 +398,7 @@ export function Play({
       const off = offDeskEdits(view, seatRole, d, standing);
       // 11-06 (Devin): what the round will actually fund — the guard's cuts and the lenders' caps — on the plan the
       // team runs with this slice in it, said before anyone submits it (a $1.2M tank order that runs as $398k).
-      const moneyLines = moneyOutcome(view, teamOutcome(view, seatRole, d, standing)?.decision ?? d, infoCost)?.lines ?? [];
+      const moneyLines = [...(seatRole === "ceo" || seatRole === "cmo" ? priceLines(view, d) : []), ...(moneyOutcome(view, teamOutcome(view, seatRole, d, standing)?.decision ?? d, infoCost)?.lines ?? [])];
       checked = true;
       if (open.length || off.length || moneyLines.length) {
         const T = (f: string, v: unknown) => leverText(f, v, view);
@@ -406,9 +429,11 @@ export function Play({
     }
     if (!checked) {
       // Solo (and a one-student firm in a class game): the same money check on the plan as it will run.
-      const moneyLines = moneyOutcome(view, d, infoCost)?.lines ?? [];
+      const outcome = moneyOutcome(view, d, infoCost);
+      const cuts = outcome?.lines ?? [];
+      const moneyLines = [...priceLines(view, d), ...cuts];
       if (moneyLines.length) {
-        if (!(await askConfirm(moneyLines, "Go back to change the plan, or submit it as it is and the round makes these changes."))) return;
+        if (!(await askConfirm(moneyLines, outcome && (outcome.cuts.length || outcome.loan || outcome.equity) ? "Go back to change the plan, or submit it as it is and the round makes these changes." : "Go back to change the plan, or submit it as it is."))) return;
         if (roundRef.current !== formRound) return;
       }
     }
@@ -417,7 +442,7 @@ export function Play({
     // to hold the decision back, the one thing that must reach the server before the deadline.
     if (callsDesk.enabled && !mp) await callsDesk.flush();
     const landed = await onPlay(d, covers, formRound); // resolution effect navigates to Review
-    if (landed !== false) { setEditedSinceSubmit(false); setSubmittedHere(true); }
+    if (landed !== false) { setEditedSinceSubmit(false); setSubmittedHere(true); sentAt.current = Date.now(); }
     if (callsDesk.enabled && mp) await callsDesk.flush().catch(() => { /* the debounced save already sent each tap */ });
   };
 
@@ -432,7 +457,7 @@ export function Play({
         <RoundTable view={view} rationale={rationale} seatRole={seatRole} standing={standing} onFocusDesk={setDesk} infoCost={infoCost} />
       )}
       {/* 11-09: every game, not only Team roles (Pro) — the officers read own + public numbers; Team roles adds the noisy briefs */}
-      {view.ownActive && <Boardroom view={view} onOpen={(to) => { setDest("review"); setRtab(to); }} />}
+      {view.ownActive && <Boardroom view={view} researchOn={infoActive} onOpen={(to) => { setDest("review"); setRtab(to); }} />}
       {view.history.length > 1 && (
         <Card>
           <Eyebrow>Season pulse</Eyebrow>
@@ -477,6 +502,7 @@ export function Play({
       {detailSnapshot && (
         <FirmDetail firm={detailSnapshot} view={view} infoActive={infoActive} poaches={poaches} onPoach={queuePoach} onClose={() => setDetailFirm(null)} />
       )}
+      {tourStep != null && <GuidedRound step={tourStep} onStep={setTourStep} onClose={() => setTourStep(null)} go={(d, t) => { setDest(d); if (t) setRtab(t); }} closeResults={() => { if (resolvedOpen != null) dismissResolved(); }} roundsRun={view.history.length} />}
       {confirmAsk && <SubmitConfirm lines={confirmAsk.lines} note={confirmAsk.note} onAnswer={(ok) => { confirmAsk.done(ok); setConfirmAsk(null); }} />}
       {seated && <SeatEdge role={seatRole!} />}
       {seated && <div className="-mx-3 -mt-4 mb-3 sm:hidden"><SeatMobileBar role={seatRole!} name={seatName} /></div>}
@@ -499,7 +525,10 @@ export function Play({
           <span className="hidden sm:inline-flex">{breweryChip}</span>
           <span className="flex-1" />
           {utilities}
-          {onExit && <button onClick={onExit} className={UTIL_BTN}>Leave</button>}
+          {guide && <button onClick={() => setTourStep(0)} className={UTIL_BTN} data-dw="tour-open">Tour</button>}
+          {onExit && (mp || view.complete
+            ? <button onClick={onExit} className={UTIL_BTN}>Leave</button>
+            : <button onClick={() => (leaveArmed ? onExit() : setLeaveArmed(true))} className={UTIL_BTN} aria-live="polite">{leaveArmed ? "Leave and lose this game?" : "Leave"}</button>)}
           <ModeToggle inline />
         </div>
         {/* Design pass 2 (Control Room Glass): one glass instrument bar — round + pips · seat plate ·
@@ -514,7 +543,7 @@ export function Play({
                 {/* Scoring-layer §2: an excluded round must be visibly marked BEFORE it's
                     played — an announced exclusion teaches that experimenting is cheap. */}
                 {!roundCounts(view) && (
-                  <span className="ml-2 inline-flex translate-y-[-3px] items-center rounded-full border border-gold bg-gold/15 px-2 py-0.5 align-middle font-mono text-[0.58rem] font-bold uppercase tracking-wide text-copperdeep" title="This round resolves and publishes normally, but does not count toward the season score.">
+                  <span className="ml-2 inline-flex translate-y-[-3px] items-center rounded-full border border-gold bg-gold/15 px-2 py-0.5 align-middle font-mono text-[0.58rem] font-bold uppercase tracking-wide text-copperdeep" title="This round runs as normal but does not count toward the season score.">
                     practice · not scored
                   </span>
                 )}
@@ -593,7 +622,7 @@ export function Play({
                 </div>
               )}
               {view.ownActive && !view.complete ? (
-                  <DecisionForm view={view} defaultDecision={defaultDecision} onPlay={handlePlay} busy={busy} infoCost={infoCost} onInfoChange={onInfoChange} infoLocked={infoLocked} poaches={poaches} onPoach={queuePoach} cityActions={cityActions} decision={decision} setDecision={editDecision} unsent={unsent} onEdited={markEdited} desk={desk} submitLabel={submitLabel} footerNote={footerNote} seatRole={mp ? seatRole : null} standing={standing}
+                  <DecisionForm view={view} defaultDecision={defaultDecision} onPlay={handlePlay} busy={busy} infoCost={infoCost} onInfoChange={onInfoChange} infoLocked={infoLocked} poaches={poaches} onPoach={queuePoach} cityActions={cityActions} decision={decision} setDecision={editDecision} unsent={unsent} sent={sentInfo} onEdited={markEdited} desk={desk} submitLabel={submitLabel} footerNote={footerNote} seatRole={mp ? seatRole : null} standing={standing}
                     callsSlot={callsDesk.enabled ? <CallsTickets desk={callsDesk} round={view.round} open={roundOpen} /> : undefined} callsCount={callsDesk.enabled ? callsDesk.count : undefined}
                     baseline={roundBase}
                     cockpit={<><Instruments view={view} /><DeskCockpit desk={desk} view={view} seatRole={seatRole} rationale={rationale[desk] ?? ""} onRationale={(v) => setRationale((p) => ({ ...p, [desk]: v }))} /></>}
@@ -605,9 +634,9 @@ export function Play({
                   <Card>
                     <Eyebrow>Forced exit</Eyebrow>
                     {mp ? (
-                      <p className="text-sm text-ink">Your brewery has left the market. You still see every round resolve — follow the shakeout in Review, and use your Scorecard for the debrief. Your instructor will tell you if there's a reassignment.</p>
+                      <p className="text-sm text-ink">Your brewery has left the market. You still see every round resolve in Review, and your Scorecard stays open for the debrief. Your instructor will tell you if there's a reassignment.</p>
                     ) : (
-                      <p className="text-sm text-ink">Your brewery ran out of road. Keep watching the shakeout, or start a new run.</p>
+                      <p className="text-sm text-ink">Your brewery has closed. Keep watching the season, or start a new game.</p>
                     )}
                     {/* DW-083 item 4: say the rule that closed it — Sprint 2's students were told a firm needed five bad
                         quarters to close, while cash ≤ 0 closed it at once. */}
@@ -640,7 +669,7 @@ export function Play({
           {dest === "review" && (() => {
             // News worth a look before the numbers: anything that names your house, plus disruptions.
             const news = parseEvents(view.events, view.names[view.own.id] ?? "").filter((e) => e.mine || e.kind === "shock").length;
-            const tabs: [RTab, string][] = [["statements", "Statements & Ratios"], ["operations", "Operations & Demand"], ["dispatch", "The Dispatch"], ["trends", "Trends"], ["field", "Field & Intel"]];
+            const tabs: [RTab, string][] = [["statements", "Statements & Ratios"], ["operations", "Operations & Demand"], ["value", "Value stick"], ["dispatch", "The Dispatch"], ["trends", "Trends"], ["field", "Field & Intel"]];
             const tab: RTab = hasHistory ? rtab : "dispatch"; // nothing to account for until a round resolves
             return (
             <div className="rounded-[14px] border border-line2 bg-panel/40">
@@ -650,7 +679,7 @@ export function Play({
                 <span className="display text-lg font-bold text-ink">Review</span>
                 <div className="inline-flex flex-wrap gap-0.5 rounded-[9px] border border-line2 bg-panel2 p-0.5">
                   {tabs.map(([id, label]) => (
-                    <button key={id} disabled={(id !== "dispatch") && !hasHistory} onClick={() => setRtab(id)} className="rounded-[7px] px-3 py-1.5 font-mono text-[0.62rem] uppercase tracking-wide transition-colors disabled:opacity-30" style={{ background: tab === id ? "var(--color-panel)" : "transparent", color: tab === id ? "var(--color-copperdeep)" : "var(--color-inksoft)", fontWeight: tab === id ? 700 : 500, boxShadow: tab === id ? "inset 0 1px 0 rgba(255,255,255,.6),0 1px 0 var(--color-line2)" : undefined }}>
+                    <button key={id} data-dw-rtab={id} disabled={(id !== "dispatch") && !hasHistory} onClick={() => setRtab(id)} className="rounded-[7px] px-3 py-1.5 font-mono text-[0.62rem] uppercase tracking-wide transition-colors disabled:opacity-30" style={{ background: tab === id ? "var(--color-panel)" : "transparent", color: tab === id ? "var(--color-copperdeep)" : "var(--color-inksoft)", fontWeight: tab === id ? 700 : 500, boxShadow: tab === id ? "inset 0 1px 0 rgba(255,255,255,.6),0 1px 0 var(--color-line2)" : undefined }}>
                       {label}
                       {id === "dispatch" && news > 0 && tab !== "dispatch" && <span className="ml-1.5 rounded-full bg-brick px-1.5 py-px text-[0.55rem] font-bold text-paper">{news}</span>}
                     </button>
@@ -661,7 +690,7 @@ export function Play({
                 {/* The way forward is on every tab — it used to live only at the foot of the Dispatch. */}
                 {!view.complete && view.ownActive && <Button variant="go" onClick={() => setDest("decide")}>On to round {Math.min(view.round + 1, view.nRounds)} →</Button>}
               </div>
-              <div className="grid gap-5 p-4">
+              <div className="grid gap-5 p-4" data-dw="review-panel">
                 {/* Season wrap belongs to the round in review, not to every lens on it — it used
                     to repeat under all five tabs once the season closed. */}
                 {view.complete && tab === "dispatch" && <SeasonOver view={view} rank={myRank} onReset={onReset} mp={mp} />}
@@ -670,6 +699,7 @@ export function Play({
                 <ErrorBoundary resetKey={tab} label={tabs.find(([id]) => id === tab)?.[1]}>
                   {tab === "statements" && <StatementsAndRatios view={view} />}
                   {tab === "operations" && (view.ownResult ? <OperationsAndDemand result={view.ownResult} view={view} /> : <Card>Operations open once a round has resolved.</Card>)}
+                  {tab === "value" && <ValueStickCard vs={view.valueStick} researchOn={infoActive} />}
                   {tab === "dispatch" && <TapDispatch view={view} round={Math.max(resolved, 1)} />}
                   {tab === "trends" && <Trends view={view} />}
                   {tab === "field" && <Field view={view} infoActive={infoActive} pending={infoPending} onInspect={setDetailFirm} />}
@@ -690,7 +720,7 @@ function SeasonOver({ view, rank, onReset, mp }: { view: GameView; rank: number;
       <h2 className="display text-2xl font-semibold">
         {rank === 1 ? "You finished first." : rank > 0 ? `You finished #${rank} of ${view.standings.length}.` : "Your run has ended."}
       </h2>
-      <p className="mt-1 text-sm text-inksoft">Sustained scorecard rewards advantage held across the whole season, not a final-round spike.</p>
+      <p className="mt-1 text-sm text-inksoft">The score rewards strength held across the whole season, not one big final round.</p>
       {mp ? <p className="mt-2 text-[0.78rem] text-inksoft">Your Scorecard and Trends stay available for the debrief — nothing more to submit.</p> : <div className="mt-3"><Button variant="go" onClick={onReset}>Play again</Button></div>}
     </Card>
   );

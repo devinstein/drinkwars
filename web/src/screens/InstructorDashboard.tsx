@@ -8,7 +8,7 @@ import { ErrorBoundary } from "../components/ErrorBoundary.js";
 import { Legend, LineChart, Scatter, type ScatterPoint, type Series } from "../components/charts.js";
 import { Events } from "../components/Events.js";
 import { parseEvents } from "../components/eventFeed.js";
-import { MARKET_META, SEG_LABEL, SHOCK_META, fmt, humanizeId } from "../labels.js";
+import { MARKET_META, SEG_LABEL, SHOCK_META, fmt, humanizeId, minus } from "../labels.js";
 import { RATIO_DEFS, RATIO_GROUPS, WCS_FACTORS, computeWcs, distressFlags, ratioDisplay } from "../lib/ratios.js";
 import { teamColor } from "../lib/teamColors.js";
 import { TuningBoard, tuningDefaults, type TuningVals } from "./TuningBoard.js";
@@ -53,7 +53,7 @@ const SCORE_LABEL: Record<(typeof SCORE_KEYS)[number], string> = {
 // DW-071: a missing field (older export, mid-season server upgrade) prints "—" instead of throwing.
 const fcov = (n: number) => (n == null ? "—" : n > 900 ? "∞" : `${n.toFixed(1)}×`);
 const flev = (n: number) => (n == null ? "—" : n.toFixed(2));
-const fscore = (n: number) => (n == null ? "—" : n.toFixed(3));
+const fscore = (n: number) => (n == null ? "—" : minus(n.toFixed(3)));
 const ftime = (s: number | null) => (s == null ? "—" : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${Math.round(s)}s`);
 const shortName = (t: DashTeam) => (t.joined ? t.name : t.name.replace(/^Open slot/i, "Bot"));
 
@@ -500,7 +500,7 @@ function PositionsCard({ d }: { d: Derived }) {
       <Eyebrow>Positions · margin × volume · round {d.latestRound + 1}</Eyebrow>
       <div className="mb-2 text-[0.72rem] text-inksoft">
         <b>Margin per can × cans = gross profit.</b> Up-and-left earns more per can; down-and-right sells more cans; bigger dot = more gross profit.
-        Then <b>running costs</b> (overhead, programs, depreciation) come out of gross profit. What's left is operating profit, which has to cover interest.
+        Then <b>operating costs</b> (overhead, programs, depreciation) come out of gross profit. What's left is operating profit, which has to cover interest.
       </div>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
         <Scatter points={pts} xLabel="Cans sold" yLabel="Margin per can" fmtX={fmt.int} fmtY={fmt.price} />

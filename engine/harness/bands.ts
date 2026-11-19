@@ -69,7 +69,9 @@ for (let i = 0; i < N_SEEDS; i++) {
       // Coverage is unbounded when interest ≈ 0; cap at 20 so a debt-free quarter
       // doesn't drag the "strong" cut to infinity (the UI caps its gauge the same way).
       add("interest_cover", Math.min(20, f.cost_of_capital.coverage));
-      add("segment_share", Object.values(f.segments).reduce((a, s) => a + s.share, 0));
+      // 11-18: the Market pillar's own reading (scorecard_raw.market: drinks-sold share on market_basis "sold"), the
+      // number the Scorecard gauge shows; Σ first-choice share is the pre-11-18 reading, for an older config.
+      add("segment_share", f.scorecard_raw?.market ?? Object.values(f.segments).reduce((a, s) => a + s.share, 0));
       add("intangible_index", f.state.Q + f.state.B);
       add("stakeholder_mean", (f.state.T_emp + f.state.T_inv + f.state.T_gov) / 3);
     }

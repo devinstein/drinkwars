@@ -85,6 +85,11 @@ export function validateConfig(c: Config): Config {
   pos(c.costs?.c_base, "costs.c_base");
   req(isNum(c.costs?.learning_rate) && c.costs.learning_rate > 0 && c.costs.learning_rate <= 1, "costs.learning_rate must be in (0, 1]");
   pos(c.costs?.learning_q0, "costs.learning_q0");
+  if (c.costs?.wts != null) {
+    rate(c.costs.wts.crew_share, "costs.wts.crew_share");
+    req(isNum(c.costs.wts.trust_max) && c.costs.wts.trust_max >= 0 && c.costs.wts.trust_max < 1, "costs.wts.trust_max must be in [0, 1)");
+    pos(c.costs.wts.trust_halfsat, "costs.wts.trust_halfsat");
+  }
 
   // finance
   nonneg(c.finance?.r_f, "finance.r_f");
@@ -93,6 +98,7 @@ export function validateConfig(c: Config): Config {
   rate(c.finance?.dividend_max_fraction, "finance.dividend_max_fraction");
   if (c.finance?.min_spread != null) nonneg(c.finance.min_spread, "finance.min_spread");
   if (c.finance?.equity_gate != null) rate(c.finance.equity_gate.max_fraction_of_valuation, "finance.equity_gate.max_fraction_of_valuation");
+  req(c.finance?.equity_gate?.basis == null || ["book", "business"].includes(c.finance.equity_gate.basis), 'finance.equity_gate.basis must be "book" or "business"');
   // Silent-typo guard: finance.ts tests `=== "graduated"`, so "Graduated" or "step " would
   // quietly fall back to the step cliff with no error anywhere.
   req(
@@ -173,6 +179,7 @@ export function validateConfig(c: Config): Config {
       req(drop === 0, "scoring.accumulation_window: drop_first and tail_only are mutually exclusive");
     }
   }
+  req(c.scoring?.market_basis == null || ["shoppers", "sold"].includes(c.scoring.market_basis), 'scoring.market_basis must be "shoppers" or "sold"');
   const tw = c.scoring?.terminal_weight ?? 0;
   req(isNum(tw) && tw >= 0 && tw <= 0.5, `scoring.terminal_weight must be in [0, 0.5] (got ${String(tw)})`);
   if (isNum(tw) && tw > 0.25 && tw <= 0.5) {

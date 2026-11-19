@@ -19,7 +19,7 @@
 import type { ReactNode } from "react";
 import { bandIsMeaningful, bandsForRound } from "drinkwars-engine";
 import type { GameView } from "../game/controller.js";
-import { fmt } from "../labels.js";
+import { fmt, minus } from "../labels.js";
 import { Card, Eyebrow } from "./ui.js";
 import { InfoDot } from "./InfoDot.js";
 import { Bridge, type BridgeStep } from "./Dashboards.js";
@@ -31,7 +31,7 @@ const COPPER = "var(--color-copper)";
 type CompKey = "financial" | "market" | "intangible" | "stakeholder";
 const COMPONENTS: { key: CompKey; label: string; blurb: string }[] = [
   { key: "financial", label: "Financial", blurb: "Profit on the capital you employ, plus balance-sheet strength." },
-  { key: "market", label: "Market", blurb: "Your share of demand, summed across the segments you serve." },
+  { key: "market", label: "Market", blurb: "Your share of the drinks sold, summed across the categories you serve." },
   { key: "intangible", label: "Preparedness", blurb: "Quality + brand capital — the product you'll compete with next year." },
   { key: "stakeholder", label: "Standing", blurb: "Employee, investor and regulator trust." },
 ];
@@ -55,22 +55,22 @@ function detailOf(key: CompKey, sc: GameView["scoring"]): ReactNode {
           <span className="mt-1 block">· <b>Return on capital</b> ({pctOf(fb?.profitability)}): net income ÷ (debt + equity).</span>
           <span className="block">· <b>Balance-sheet soundness</b> ({pctOf(fb?.soundness)}): how far your interest coverage clears {cover.toFixed(1)}×, less a penalty once debt-to-equity climbs past {lev.toFixed(1)}×.</span>
           <span className="block">· <b>Cash buffer</b> ({pctOf(fb?.cash_resilience)}): cash against the {fmt.money(safety)} safety line, credited up to 3× and no further.</span>
-          <span className="mt-1.5 block"><b>High</b> is profitable, comfortably covering interest, with cash in the bank. <b>Low</b> is losing money — or profitable but stretched, because a thin cover and an empty account cost you more here ({pctOf((fb?.soundness ?? 0) + (fb?.cash_resilience ?? 0))} of the pillar) than a middling margin does.</span>
+          <span className="mt-1.5 block"><b>High</b> is profitable, comfortably covering interest, with cash in the bank. <b>Low</b> is losing money, or profitable but stretched. Thin interest coverage and an empty account cost you more here ({pctOf((fb?.soundness ?? 0) + (fb?.cash_resilience ?? 0))} of the pillar) than a middling margin does.</span>
         </>
       );
     case "market":
       return (
         <>
-          <span className="block">Your share of demand, <b>summed across every category you sell into</b>. Two categories at 20% each scores the same as one at 40% — breadth and depth are worth the same here.</span>
-          <span className="mt-1.5 block"><b>High</b> means you are a meaningful part of the categories you contest. <b>Low</b> means you are small, or spread so thin that you are nobody in any of them.</span>
-          <span className="mt-1.5 block">Moved by price, brand, which categories you choose to fight for — and by capacity, because you cannot hold share you have no tanks to brew for.</span>
+          <span className="block">{sc?.market_basis === "sold" ? <>Your share of the drinks sold in each category, </> : <>Your share of shoppers' first choices in each category, </>}<b>summed across every category you sell into</b>. Two categories at 20% each scores the same as one at 40% — breadth and depth are worth the same here.{sc?.market_basis === "sold" ? " Only drinks you actually sell count: shoppers you turn away because you ran out do not." : ""}</span>
+          <span className="mt-1.5 block"><b>High</b> means you are a meaningful part of the categories you contest. <b>Low</b> means you are small, or spread so thin that you are a minor player in all of them.</span>
+          <span className="mt-1.5 block">Moved by price, brand, and which categories you compete in. Capacity matters too: you cannot hold share you have no tanks to brew for.</span>
         </>
       );
     case "intangible":
       return (
         <>
           <span className="block">Quality capital + brand capital, added together. These are <b>stocks, not spending</b>: it does not measure what you spent this quarter, it measures what you have accumulated.</span>
-          <span className="mt-1.5 block">Both lag — what you fund this quarter lands next quarter — and both decay every quarter you stop funding them.</span>
+          <span className="mt-1.5 block">Both lag: what you fund this quarter takes effect next quarter. Both decay every quarter you stop funding them.</span>
           <span className="mt-1.5 block"><b>High</b> is sustained investment: the product and the reputation you will still be competing with a year from now. <b>Low</b> means you have been harvesting this year's profit and letting both run down. It is the pillar that punishes short-termism, which is why it is slow to build and slow to notice.</span>
         </>
       );
@@ -78,7 +78,7 @@ function detailOf(key: CompKey, sc: GameView["scoring"]): ReactNode {
       return (
         <>
           <span className="block">The <b>average</b> of your three relationship stocks — employees, investors, regulators. Because it is an average, neglecting one drags the whole pillar down even when the other two are strong.</span>
-          <span className="mt-1.5 block">Each one also pays off outside the scorecard: investor trust narrows your borrowing spread and cuts the cost of issuing equity, regulator trust lowers your compliance overhead, and employee trust raises crew productivity, which lowers what every drink costs to brew.</span>
+          <span className="mt-1.5 block">Each one also pays off outside the scorecard. Investor trust narrows your borrowing spread and cuts the cost of issuing equity. Regulator trust lowers your compliance overhead. Employee trust raises crew productivity, which lowers what every drink costs to brew.</span>
           <span className="mt-1.5 block"><b>High</b> is all three funded steadily. <b>Low</b> is one or more ignored. Same stock behaviour as Preparedness: a quarter's lag, and decay if you stop.</span>
         </>
       );
@@ -127,8 +127,8 @@ function BandGauge({ value, band, format }: { value: number; band: { weak: numbe
 
 const TONE_COLOR: Record<"good" | "mid" | "risk", string> = { good: HOP, mid: "var(--color-inksoft)", risk: BRICK };
 
-const sc = (n: number) => n.toFixed(2);
-const scd = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(3)}`;
+const sc = (n: number) => minus(n.toFixed(2));
+const scd = (n: number) => `${n >= 0 ? "+" : ""}${minus(n.toFixed(3))}`;
 
 export function ScorecardPanel({ view }: { view: GameView }) {
   // Bands in force for the round being read, not the 16-round steady state (DW-057). The
@@ -195,8 +195,9 @@ export function ScorecardPanel({ view }: { view: GameView }) {
   // ── per-component: position, band reading, disagreement, field-moved guard ──
   const invested = r.balance_sheet.debt + r.balance_sheet.equity;
   const rawOf: Record<CompKey, { value: number; bandKey: string; format: (v: number) => string } | null> = {
-    financial: invested > 0 ? { value: r.pnl.net_income / invested, bandKey: "roic", format: (v) => `${(v * 100).toFixed(1)}%` } : null,
-    market: { value: Object.values(r.segments).reduce((a, s) => a + s.share, 0), bandKey: "segment_share", format: (v) => `${(v * 100).toFixed(0)}%` },
+    financial: invested > 0 ? { value: r.pnl.net_income / invested, bandKey: "roic", format: (v) => fmt.pct1(v) } : null,
+    // 11-18: the pillar's own reading (drinks-sold share on market_basis "sold"); Σ first-choice share on an older result
+    market: { value: r.scorecard_raw?.market ?? Object.values(r.segments).reduce((a, s) => a + s.share, 0), bandKey: "segment_share", format: (v) => `${(v * 100).toFixed(0)}%` },
     intangible: { value: r.state.Q + r.state.B, bandKey: "intangible_index", format: (v) => v.toFixed(0) },
     stakeholder: { value: (r.state.T_emp + r.state.T_inv + r.state.T_gov) / 3, bandKey: "stakeholder_mean", format: (v) => v.toFixed(0) },
   };
@@ -205,7 +206,7 @@ export function ScorecardPanel({ view }: { view: GameView }) {
   const coverLine = coverBand
     ? r.balance_sheet.debt < 1_000
       ? { text: "Interest cover: no debt — nothing to cover.", tone: "mid" as const }
-      : { text: `Interest cover ${Math.min(20, r.cost_of_capital.coverage).toFixed(1)}× — ${tierOf(Math.min(20, r.cost_of_capital.coverage), coverBand)} (sound ≥ ${coverBand.weak}×, strong ≥ ${coverBand.strong}×).`, tone: "mid" as const }
+      : { text: `Interest cover ${fmt.num(Math.min(20, r.cost_of_capital.coverage))}× — ${tierOf(Math.min(20, r.cost_of_capital.coverage), coverBand)} (sound ≥ ${coverBand.weak}×, strong ≥ ${coverBand.strong}×).`, tone: "mid" as const }
     : null;
 
   return (
@@ -221,7 +222,7 @@ export function ScorecardPanel({ view }: { view: GameView }) {
         <div className="mt-2">
           <Bridge steps={steps} fmtDelta={scd} fmtTotal={sc} vh={150} />
           <div className="mt-1 text-[0.66rem] text-inksoft">
-            This quarter's change in your season score, split by component. Bars are exact — they add up to the change with nothing left over.
+            This quarter's change in your season score, split by component.
           </div>
         </div>
       )}
@@ -239,8 +240,8 @@ export function ScorecardPanel({ view }: { view: GameView }) {
 
           // The two-readings-disagree callout (§5): relative and absolute at odds.
           let callout: string | null = null;
-          if (tier === "strong" && pos.tone === "risk") callout = "You're behind in this room, but by industry standards this is a strong position — the field here is unusually hot.";
-          if (tier === "weak" && pos.tone === "good") callout = "You lead the room here — but by industry standards this is still weak. Don't settle for winning a slow race.";
+          if (tier === "strong" && pos.tone === "risk") callout = "You're behind your rivals here, but by industry standards this is a strong position. Your rivals are unusually strong.";
+          if (tier === "weak" && pos.tone === "good") callout = "You lead your rivals here, but by industry standards this is still weak. Leading a weak field is not the same as being strong.";
 
           // The field-moved guard (§6): raw improved while position fell (or vice versa).
           let fieldNote: string | null = null;
@@ -251,7 +252,7 @@ export function ScorecardPanel({ view }: { view: GameView }) {
             const dz = z - prevNorm;
             const dr = curRaw - prevRaw;
             if (dz < -0.15 && dr > 0) fieldNote = "Your fundamentals actually improved — rivals just improved faster.";
-            if (dz > 0.15 && dr < 0) fieldNote = "You slipped in absolute terms — you gained ground only because the field slipped more.";
+            if (dz > 0.15 && dr < 0) fieldNote = "You slipped in absolute terms. You moved up only because rivals slipped more.";
           }
 
           return (
@@ -264,7 +265,7 @@ export function ScorecardPanel({ view }: { view: GameView }) {
                 </div>
                 <div className="text-[0.68rem] font-semibold" style={{ color: TONE_COLOR[pos.tone] }}>{pos.text}</div>
               </div>
-              <div className="mt-0.5 text-[0.66rem] text-inksoft">{c.blurb}</div>
+              <div className="mt-0.5 text-[0.66rem] text-inksoft">{c.key === "market" && view.scoring?.market_basis !== "sold" ? "Your share of shoppers' first choices, summed across the categories you serve." : c.blurb}</div>
               {raw && band ? (
                 <div className="mt-2">
                   <BandGauge value={raw.value} band={band} format={raw.format} />
@@ -277,7 +278,7 @@ export function ScorecardPanel({ view }: { view: GameView }) {
               ) : (
                 <div className="mt-2 text-[0.62rem] text-inksoft">
                   {raw
-                    ? `Too early to grade — reads ${raw.format(raw.value)}, but the field has not spread yet this quarter.`
+                    ? `Currently ${raw.format(raw.value)}. Not graded yet: it is too early in the season to compare breweries.`
                     : "No reading yet."}
                 </div>
               )}
@@ -289,7 +290,7 @@ export function ScorecardPanel({ view }: { view: GameView }) {
         })}
       </div>
       <div className="mt-2 text-[0.62rem] text-inksoft">
-        Colored zones are industry benchmarks (weak / sound / strong) from calibrated market data — they show whether you're running a good company, not just whether you're beating this room. They never change your score.
+        Colored zones are industry benchmarks (weak / sound / strong) from calibrated market data. They show whether you're running a good company, not just whether you're beating your rivals. They never change your score.
       </div>
     </Card>
   );

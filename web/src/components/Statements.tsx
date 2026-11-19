@@ -71,7 +71,7 @@ const OPEX_ITEMS: Items = {
     overhead: "The fixed cost every brewery pays to stay open, whatever it brews.",
     tank_upkeep: "Upkeep on every tank you own, used or idle. Idle tanks cost the same as full ones.",
     regulatory: "Compliance costs. They shrink as your distributor and regulator relationships grow.",
-    facilities: "Running costs of your facilities: rent, fixed costs, chosen maintenance, and any premium you bid to win a contested parcel.",
+    facilities: "Operating costs of your facilities: rent, fixed costs, chosen maintenance, and any premium you bid to win a contested parcel.",
     market_research: "What you paid for research on your rivals this quarter.",
   },
 };
@@ -95,14 +95,14 @@ const PNL: Line[] = [
   { key: "ebit", label: "Operating income (EBIT)", get: (q) => q.pnl.ebit, kind: "sub", good: "up" },
   { key: "interest", label: "Interest", get: (q) => -q.pnl.interest, good: "up", note: (v) => {
     const f = v.finance;
-    if (!f) return "Your lender's rate is not fixed: it rises as you take on debt relative to equity and as operating income thins out against the interest bill. Repaying debt is the way out.";
+    if (!f) return "Your lender's rate is not fixed: it rises as you take on debt relative to equity and as operating income shrinks compared with the interest bill. Repaying debt brings it down.";
     const apr = (q: number) => `${((Math.pow(1 + q, 4) - 1) * 100).toFixed(0)}%`;
     const healthy = f.r_f + f.base_spread;
     const worst = healthy + f.coverage_penalty_spread;
     const grid = f.coverage_penalty_mode === "graduated"
-      ? `Your loan is priced on a grid, the way real credit agreements are. While operating income covers the interest bill at least ${f.coverage_threshold.toFixed(1)}× you pay the healthy rate, about ${apr(healthy)} a year. Below that the spread widens with how thin the cover actually is — reaching about ${apr(worst)} a year for a firm earning no operating income at all.`
+      ? `Your loan is priced on a grid, the way real credit agreements are. While operating income covers the interest bill at least ${f.coverage_threshold.toFixed(1)}× you pay the healthy rate, about ${apr(healthy)} a year. Below that, the spread widens as coverage gets thinner. It reaches about ${apr(worst)} a year for a firm earning no operating income at all.`
       : `While operating income covers the interest bill at least ${f.coverage_threshold.toFixed(1)}× you pay about ${apr(healthy)} a year. Fall below that and the whole loan reprices to about ${apr(worst)}.`;
-    return `${grid} Debt also gets dearer as debt-to-equity climbs past ${f.leverage_ref.toFixed(1)}×, and a little cheaper as investor relations improve. That is why the interest line can move when your debt has not — and why a bad quarter costs a borrower more than it costs a firm with no debt. Repaying debt, or earning your way back above ${f.coverage_threshold.toFixed(1)}× cover, is the way out.`;
+    return `${grid} Debt also gets dearer as debt-to-equity climbs past ${f.leverage_ref.toFixed(1)}×, and a little cheaper as investor relations improve. That is why the interest line can move when your debt has not. It is also why a bad quarter costs a borrower more than it costs a firm with no debt. Repaying debt, or earning your way back above ${f.coverage_threshold.toFixed(1)}× coverage, brings the rate down.`;
   } },
   { key: "net", label: "Net income", get: (q) => q.pnl.net_income, kind: "total", good: "up" },
 ];
@@ -236,7 +236,7 @@ export function StatementsAndRatios({ view }: { view: GameView }) {
     <tr className="text-right font-mono text-[0.58rem] uppercase tracking-[0.1em] text-inksoft">
       <th className="sticky left-0 z-[1] bg-panel py-1 pr-2 text-left font-normal" />
       {shown.map((q, i) => <th key={q.round} className={`px-2 py-1 font-normal ${i === shown.length - 1 ? "font-bold text-ink" : ""}`}>R{q.round + 1}</th>)}
-      {prev && <th className="px-2 py-1 font-normal" title="Latest quarter against the one before it. Costs carry negative, so a positive change on a cost line means the cost fell.">{delta ? `Δ vs R${prev.round + 1}` : ""}</th>}
+      {prev && <th className="px-2 py-1 font-normal" title="Latest quarter against the one before it. Costs show as negative, so a positive change on a cost line means the cost fell.">{delta ? `Δ vs R${prev.round + 1}` : ""}</th>}
     </tr>
   );
 
@@ -384,17 +384,17 @@ export function StatementsAndRatios({ view }: { view: GameView }) {
                           so this uses the FIRM's unit cost, not a per-category one. Calling it
                           "gross margin" implied a per-category cost build that does not exist —
                           and with equal prices every category showed an identical figure. */}
-                      {opsRow(<span className="pl-3">Contribution per drink <InfoDot title="Contribution per drink">Price less the firm's unit cost, so it reads the same across categories whenever you price them the same. You brew one recipe at one cost; what differs between categories is the price buyers will pay and how many of them there are, not what the drink costs to make.</InfoDot></span>, (q) => { const c = q.categories[id]; return c?.sold && c.price > 0 ? `${fmt.price(c.price - q.unitCost)} · ${pct((c.price - q.unitCost) / c.price)}` : "—"; }, `${id}m`)}
+                      {opsRow(<span className="pl-3">Contribution per drink <InfoDot title="Contribution per drink">Price minus the firm's unit cost, so categories priced the same show the same figure. You brew one recipe at one cost. Categories differ in the price buyers will pay and how many buyers there are, not in what the drink costs to make.</InfoDot></span>, (q) => { const c = q.categories[id]; return c?.sold && c.price > 0 ? `${fmt.price(c.price - q.unitCost)} · ${pct((c.price - q.unitCost) / c.price)}` : "—"; }, `${id}m`)}
                       {shown.some((q) => (q.categories[id]?.wanted ?? 0) - (q.categories[id]?.sold ?? 0) > 1) &&
-                        opsRow(<span className="pl-3">Unserved demand <InfoDot title="Unserved demand">Drinks buyers wanted from you at your price that you could not supply. It is lost revenue, and the signal that capacity — not appeal — is what is holding sales back.</InfoDot></span>, (q) => { const c = q.categories[id]; const gap = c ? c.wanted - c.sold : 0; return gap > 1 ? fmt.int(gap) : "—"; }, `${id}g`)}
+                        opsRow(<span className="pl-3">Unserved demand <InfoDot title="Unserved demand">Drinks buyers wanted from you at your price that you could not supply. It is lost revenue, and a sign that capacity, not appeal, is holding sales back.</InfoDot></span>, (q) => { const c = q.categories[id]; const gap = c ? c.wanted - c.sold : 0; return gap > 1 ? fmt.int(gap) : "—"; }, `${id}g`)}
                       {shown.some((q) => (q.categories[id]?.sold ?? 0) - (q.categories[id]?.wanted ?? 0) > 1) &&
-                        opsRow(<span className="pl-3">Spillover from rivals <InfoDot title="Spillover">Units you sold beyond the demand you won outright. When a rival runs out of product, some of its buyers settle for a brewery that still has beer — in proportion to appeal, and only if you have spare tanks. It is already counted in units sold. It is real revenue, but it is borrowed: it disappears the quarter that rival adds capacity.</InfoDot></span>, (q) => { const c = q.categories[id]; const x = c ? c.sold - c.wanted : 0; return x > 1 ? fmt.int(x) : "—"; }, `${id}s`)}
+                        opsRow(<span className="pl-3">Spillover from rivals <InfoDot title="Spillover">Units you sold beyond the demand you won outright. When a rival runs out of product, some of its buyers settle for a brewery that still has beer. They split in proportion to appeal, and you get them only if you have spare tanks. It is already counted in units sold. It is real revenue, but temporary: it disappears the quarter that rival adds capacity.</InfoDot></span>, (q) => { const c = q.categories[id]; const x = c ? c.sold - c.wanted : 0; return x > 1 ? fmt.int(x) : "—"; }, `${id}s`)}
                     </Fragment>
                   ))}
                   {opsRow("Total units sold", (q) => fmt.int(sold(q)), "tu", true)}
-                  {opsRow(<>Cost to brew one drink <InfoDot title="Unit cost">The full build-up — experience, operations, recipe, location, crew — is on the Operations &amp; Demand tab.</InfoDot></>, (q) => fmt.price(q.unitCost), "uc")}
+                  {opsRow(<>Cost to brew one drink <InfoDot title="Unit cost">The full build-up (experience, operations, recipe, location, crew) is on the Operations &amp; Demand tab.</InfoDot></>, (q) => fmt.price(q.unitCost), "uc")}
                   {opsRow("Tank capacity", (q) => (q.capacity > 0 ? fmt.int(q.capacity) : "—"), "cap")}
-                  {opsRow(<>Capacity utilization <InfoDot title="Capacity utilization">Units sold ÷ tank capacity. Every unit of capacity costs upkeep whether you brew into it or not, so low utilization is money spent on idle tanks; at 100% you are turning buyers away.</InfoDot></>, (q) => (q.capacity > 0 ? pct(sold(q) / q.capacity) : "—"), "util")}
+                  {opsRow(<>Capacity utilization <InfoDot title="Capacity utilization">Units sold ÷ tank capacity. Every unit of capacity costs upkeep whether you brew into it or not, so low utilization is money spent on idle tanks. At 100% you are turning buyers away.</InfoDot></>, (q) => (q.capacity > 0 ? pct(sold(q) / q.capacity) : "—"), "util")}
                 </tbody>
               </table>
             </div>
@@ -419,7 +419,7 @@ export function StatementsAndRatios({ view }: { view: GameView }) {
           <Card>
             <div className="flex items-center gap-1.5">
               <Eyebrow>Key ratios · R{last.round + 1}</Eyebrow>
-              <InfoDot title="Reading the ratios" align="right">Every ratio here is computed from the statements beside it. Point at one to light up the lines it uses and see the arithmetic in this quarter's figures; click to keep it open. The small line is the trend over the quarters shown. Where the economy has a benchmark, a tag says how the figure reads by industry standards.</InfoDot>
+              <InfoDot title="Reading the ratios" align="right">Every ratio here is computed from the statements beside it. Point at one to light up the lines it uses and see the arithmetic in this quarter's figures; click to keep it open. The small line is the trend over the quarters shown. Where the economy has a benchmark, a tag shows how the figure compares with industry standards.</InfoDot>
             </div>
             <div className="mb-1 text-[0.7rem] text-inksoft">Point at a ratio to see which statement lines it comes from.</div>
             {RATIO_GROUPS.map((g) => (

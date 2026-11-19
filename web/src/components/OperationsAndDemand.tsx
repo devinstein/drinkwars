@@ -51,7 +51,7 @@ export function OperationsAndDemand({ result, view }: { result: FirmRoundResult;
       <div className="flex items-center gap-1.5">
         <Eyebrow>Unit Cost Build-Up</Eyebrow>
         <InfoDot title="What one drink costs to brew">
-          Start from the base cost of brewing one drink, then each line moves it. The model multiplies the factors together, so each line shows the <b>dollar change</b> that factor causes, with the raw factor in grey. Cumulative volume (the experience curve) and investment in operations push cost <b>down</b>. A premium recipe, an expensive location and input shocks push it <b>up</b>. Crew productivity divides rather than multiplies because it measures output per hour of labor: a crew that brews 10% more per hour makes each drink about 9% cheaper. The experience curve reads your cumulative volume <b>at the start of the quarter</b> — this quarter's brewing pays off next quarter, which is why round 1 shows no saving.
+          Start from the base cost of brewing one drink, then each line moves it. The model multiplies the factors together, so each line shows the <b>dollar change</b> that factor causes, with the raw factor in grey. Cumulative volume (the experience curve) and investment in operations push cost <b>down</b>. A premium recipe, an expensive location and input shocks push it <b>up</b>. Crew productivity divides rather than multiplies because it measures output per hour of labor: a crew that brews 10% more per hour makes each drink about 9% cheaper. The experience curve uses your cumulative volume <b>at the start of the quarter</b>. This quarter's brewing pays off next quarter, which is why round 1 shows no saving.
         </InfoDot>
       </div>
       {(() => {
@@ -101,7 +101,7 @@ export function OperationsAndDemand({ result, view }: { result: FirmRoundResult;
         <Card>
           <div className="flex items-center gap-1.5">
             <Eyebrow>Your Markets</Eyebrow>
-            <InfoDot title="Markets &amp; shipping">Revenue and units by market. <b>Shipping</b> is what it cost to truck product into a market from your nearest brewery because you sold more there than you brew there; it lands inside operating expense on the P&amp;L. Siting production in the market removes it.</InfoDot>
+            <InfoDot title="Markets &amp; shipping">Revenue and units by market. <b>Shipping</b> is what it cost to truck product into a market from your nearest brewery because you sold more there than you brew there. It counts as operating expense on the P&amp;L. Siting production in the market removes it.</InfoDot>
           </div>
           <div className="grid gap-3 sm:grid-cols-[260px_1fr]">
             <div className="rounded-md border border-line bg-paper2/30 p-1">
@@ -130,7 +130,7 @@ export function OperationsAndDemand({ result, view }: { result: FirmRoundResult;
           <Eyebrow>Your Programs</Eyebrow>
           <div className="grid gap-1">
             {repOn && <Row label={<span>Reputation <span className="text-[0.62rem] text-inksoft">keeping deals makes borrowing cheaper</span></span>} value={<span>{meter(result.state.reputation, 12)} <span className="tnum ml-1">{result.state.reputation.toFixed(1)}</span></span>} />}
-            {sustOn && <Row label={<span>Water efficiency <span className="text-[0.62rem] text-inksoft">drought armor</span></span>} value={<span>{meter(result.state.water_efficiency, 30)} <span className="tnum ml-1">{result.state.water_efficiency.toFixed(1)}</span></span>} />}
+            {sustOn && <Row label={<span>Water efficiency <span className="text-[0.62rem] text-inksoft">protects against droughts</span></span>} value={<span>{meter(result.state.water_efficiency, 30)} <span className="tnum ml-1">{result.state.water_efficiency.toFixed(1)}</span></span>} />}
             {rndOn && <Row label={<span>R&amp;D progress <span className="text-[0.62rem] text-inksoft">race to the new category</span></span>} value={<span>{meter(result.state.rnd_progress, 60)} <span className="tnum ml-1">{result.state.rnd_progress.toFixed(0)}</span></span>} />}
             {vassets.length > 0 && <Row label="Vertical assets" value={vassets.map((a) => a.id.replace(/_/g, " ")).join(" · ")} />}
             {emps.length > 0 && <Row label="Your crew" value={emps.map((e) => e.name).join(" · ")} />}
@@ -149,7 +149,7 @@ export function OperationsAndDemand({ result, view }: { result: FirmRoundResult;
         <div className="flex items-center gap-1.5">
           <Eyebrow>Why You Sold What You Sold</Eyebrow>
           <InfoDot title="How appeal becomes sales">
-            Every drinker weighs each brewery's <b>appeal</b> in a category. Appeal is a sum: a base level everyone gets, plus what your recipe quality, your brand and your focus on that category add — minus what your price takes away (the <b>price effect</b>, always negative: the higher the price, the bigger the pullback). The bar shows the pieces that <i>build</i> appeal, in proportion. What matters for sales is your <b>net appeal</b> compared with your rivals': the brewery with the higher net appeal takes the larger share. Raising price lifts your margin per drink but lowers net appeal, so you sell fewer of them.
+            Every drinker weighs each brewery's <b>appeal</b> in a category. Appeal is a sum: a base level everyone gets, plus what your recipe quality, your brand and your focus on that category add. Your price then takes some away (the <b>price effect</b>, always negative: the higher the price, the bigger the drop). The bar shows the pieces that <i>build</i> appeal, in proportion. What matters for sales is your <b>net appeal</b> compared with your rivals': the brewery with the higher net appeal takes the larger share. Raising price lifts your margin per drink but lowers net appeal, so you sell fewer of them.
           </InfoDot>
         </div>
         <div className="mb-3 text-[0.72rem] text-inksoft">Each bar is what builds your appeal to drinkers in that category. Price works against it — the <span className="text-brick">price effect</span>. Net appeal, relative to rivals, sets your share.</div>
@@ -202,7 +202,7 @@ export function OperationsAndDemand({ result, view }: { result: FirmRoundResult;
           <div className="flex items-center gap-1.5">
             <Eyebrow>Production &amp; Inventory</Eyebrow>
             <InfoDot title="Where spoilage comes from">
-              Spoilage is beer you brewed but did not sell. Whatever finished stock is left at the end of the quarter, a fixed share of it goes off and is written off at what it cost you to brew — a straight loss on the P&amp;L. It has nothing to do with distribution or how many locations you run. The cause is brewing ahead of demand; the cure is a lower <b>run rate</b> (Operations desk) or selling more of what you make. Low turnover is the early warning: stock is sitting.
+              Spoilage is beer you brewed but did not sell. A fixed share of the finished stock left at the end of the quarter goes bad. It is written off at what it cost you to brew, a straight loss on the P&amp;L. It has nothing to do with distribution or how many locations you run. The cause is brewing ahead of demand. A lower <b>run rate</b> (Operations desk) or selling more of what you make fixes it. Low turnover is the early warning: stock is sitting unsold.
             </InfoDot>
           </div>
           <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm tnum">

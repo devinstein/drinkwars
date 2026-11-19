@@ -63,7 +63,7 @@ export function MarketDetail({
 
   const kindLabel = market.kind === "home" ? "Home region" : market.kind === "export" ? "Export market" : "Domestic region";
   const size = market.demand_mult >= 1.1 ? "Larger than your home market" : market.demand_mult <= 0.9 ? "Smaller than your home market" : "About home-sized";
-  const price = taste(market.beta_p_mult, "Very price-sensitive — keep prices keen", "Less price-sensitive — room to charge more");
+  const price = taste(market.beta_p_mult, "Very price-sensitive — low prices win", "Less price-sensitive — room to charge more");
   const quality = taste(market.beta_q_mult, "Rewards quality strongly", "Quality matters less here");
   const brand = taste(market.beta_b_mult, "Brand-driven — buzz sells", "Brand matters less here");
   const reach =
@@ -130,7 +130,7 @@ export function MarketDetail({
 
           {market.kind === "export" && (
             <p className="mt-3 text-[0.68rem] leading-snug text-inksoft">
-              Export revenue is converted at the exchange rate, then tariffed — a weak local currency or a high tariff can erase a good margin. Currency drifts each round.
+              Export revenue is converted at the exchange rate, then the tariff is taken out. A weak local currency or a high tariff can erase a good margin. The exchange rate shifts each round.
             </p>
           )}
         </div>

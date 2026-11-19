@@ -16,7 +16,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Config } from "drinkwars-engine";
 import type { GameView, MarketView, MarketSegmentStanding, MarketLot } from "../game/controller.js";
 import type { CityActions, CityBuildOrder } from "../game/cityActions.js";
-import { buildKey, dedupeBuilds, marketPresenceFrom, overruledBuilds, teamBuildSource, teamEntryNote, teammateBuilds, type LostBuild } from "../game/cityActions.js";
+import { buildKey, dedupeBuilds, marketPresenceFrom, overruledBuilds, teamBuildSource, teamEntryNote, teammateBuilds, withdrawEntry, type LostBuild } from "../game/cityActions.js";
 import { SEG_LABEL, SEG_CHARACTER, DISTRICT_TRAITS, MARKET_META, ZONE_OF, ZONE_TONE, FAC_TAG, FAC_NOTE, fmt } from "../labels.js";
 import { firmColor } from "../lib/teamColors.js";
 import { FacilityChip, flowBadge } from "./FacilityGlyph.js";
@@ -119,6 +119,8 @@ interface MineModel {
 interface RivalModel { firmId: string; name: string; district: string; type: string; lot?: string }
 interface CityModel {
   id: string; name: string; region: string; kind: string; entered: boolean; entryCost: number; fx: number;
+  /** 11-16: entered on this seat's form this round, not yet run — the fee is charged when the round runs, so it can be withdrawn */
+  enteringNow: boolean;
   geo: [number, number]; coast: "right" | "bottom" | null; seed: number; roadEvery: number;
   districts: DistrictModel[]; mine: MineModel[]; rivals: RivalModel[]; segments: MarketSegmentStanding[]; lots: MarketLot[];
   catchment?: { grid: number; radius: number; lambda: number; self_weight: number; beta_loc: number };
@@ -173,7 +175,7 @@ function buildCity(view: GameView, market: MarketView, actions: CityActions, ext
   const enteredNow = market.entered || actions.markets.includes(market.id);
   return {
     id: market.id, name: meta.city, region: meta.region || market.label, kind: market.kind,
-    entered: enteredNow, entryCost: market.entryCost, fx: market.fx,
+    entered: enteredNow, enteringNow: !market.entered && actions.markets.includes(market.id), entryCost: market.entryCost, fx: market.fx,
     geo: meta.geo, coast: meta.coast, seed: meta.seed, roadEvery: 4,
     districts, mine: [...real, ...queued], rivals, segments: market.segments, lots: market.lots ?? [],
     catchment: view.modules?.facilities?.catchment,
@@ -520,6 +522,7 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
   const [hoverFac, setHoverFac] = useState<string | null>(null);
   const [siting, setSiting] = useState<{ lot: string | null; district: string | null; type: string | null; bid?: number } | null>(null);
   const [entering, setEntering] = useState<string | null>(null);
+  const [withdrawn, setWithdrawn] = useState<{ id: string; builds: string[]; teamBuilds: number } | null>(null); // 11-16: what Withdraw entry took back
   const [facPop, setFacPop] = useState<string | null>(null);
   const [globeOpen, setGlobeOpen] = useState(false);
   const stageRef = useRef<HTMLDivElement | null>(null); // the map box the on-map popovers anchor to (DW-079)
@@ -538,7 +541,7 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
     return () => { clearTimeout(id); window.removeEventListener("resize", draw); };
   }, [plan, layer, mode]);
 
-  if (!sel) return <div className="rounded-xl border border-line2 bg-panel p-6 text-sm text-inksoft">The city map opens once geographic markets are in play.</div>;
+  if (!sel) return <div className="rounded-xl border border-line2 bg-panel p-6 text-sm text-inksoft">The city map opens once geographic markets are part of the game.</div>;
 
   const dByKey = (k: string) => sel.districts.find((d) => d.key === k);
   const segMeta = (id: string) => SEG_CHARACTER[id] ?? { hue: "var(--color-copper)", tagline: "", rewards: "" };
@@ -548,7 +551,17 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
 
   // ---- actions ----
   const selectCity = (id: string) => { const c = cities.find((x) => x.id === id); if (!c) return; setSiting(null); setFacPop(null); setGlobeOpen(false); if (c.entered) setSelId(id); else { setSelId(id); setEntering(id); } };
-  const commitEnter = (id: string) => { setActions((a) => ({ ...a, markets: Array.from(new Set([...a.markets, id])) })); setEntering(null); setSelId(id); };
+  const commitEnter = (id: string) => { setActions((a) => ({ ...a, markets: Array.from(new Set([...a.markets, id])) })); setEntering(null); setSelId(id); setWithdrawn(null); };
+  // 11-16 (post-mortems): an entry made this round can be taken back before the round runs, with the builds this seat queued there
+  const withdrawEnter = (id: string) => {
+    const c = cities.find((x) => x.id === id); if (!c?.enteringNow) return;
+    const mineHere = c.mine.filter((f) => f.pending && f.own && f.order);
+    const what = (f: MineModel) => `${(typeOf(f.type)?.label ?? f.type).toLowerCase()} (${c.districts.find((d) => d.key === f.district)?.label ?? f.district})`;
+    for (const f of mineHere) onWithdrawBuild?.(f.order!); // drops the map queue's copy and the form's
+    setActions((a) => withdrawEntry(a, id, carriedSupply).actions);
+    setSiting(null); setFacPop(null);
+    setWithdrawn({ id, builds: mineHere.map(what), teamBuilds: c.mine.filter((f) => f.pending && !f.own).length });
+  };
   const openSiting = (district?: string | null, lot?: string | null) => setSiting({ lot: lot ?? null, district: district ?? null, type: null });
   const build = () => {
     if (!siting?.lot || !siting.district || !siting.type) return;
@@ -607,7 +620,7 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
     // 10-29: it read "the COO decides" with no button, so this copy had stopped promising one).
     const unless = l.chair ? `, unless ${tag(l.chair)}, whose desk it is, sets them` : "";
     if (l.kind === "ceo") return l.waiting
-      ? `Waiting on ${tag(l.who)}. The CEO set this round's builds before you sent this one, and the CEO's word on builds is final${unless} — so it goes in once the CEO takes it (Use theirs, on Decide). Talk to them.`
+      ? `Waiting on ${tag(l.who)}. The CEO set this round's builds before you sent this one, and the CEO's word on builds is final${unless}. It goes in once the CEO accepts it (Use theirs, on Decide). Talk to them.`
       : `${tag(l.who)} cancelled it. The CEO's word on builds is final${unless}: the CEO can bring it back with Use theirs, on Decide. Or withdraw it to free the parcel.`;
     return `${tag(l.who)} changed the team's builds after you sent this — among teammates the latest change wins. Talk to them, or to your CEO, who has the final say.`;
   };
@@ -693,7 +706,7 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
                   </div>
                   <div className="mt-0.5 flex justify-between pl-[18px]">
                     <span className="text-[0.78rem] italic text-inksoft">{c.region}{c.kind === "export" ? " · intl" : ""}</span>
-                    <span className="font-mono text-[0.58rem]" style={{ color: c.entered ? "var(--color-inksoft)" : "var(--color-gold)" }}>{c.entered ? `${ns} site${ns === 1 ? "" : "s"}` : `Enter · ${fmt.money(c.entryCost)}`}</span>
+                    <span className="font-mono text-[0.58rem]" style={{ color: c.entered && !c.enteringNow ? "var(--color-inksoft)" : "var(--color-gold)" }}>{c.enteringNow ? `Entering · ${fmt.money(c.entryCost)}` : c.entered ? `${ns} site${ns === 1 ? "" : "s"}` : `Enter · ${fmt.money(c.entryCost)}`}</span>
                   </div>
                   {/* 11-09: the competition, visible before entry (public: sites + shelves) */}
                   <div data-dw="city-rivals" className="mt-1 flex items-center gap-1 pl-[18px]" title={cityRivals(c, view.names).map((r) => `${r.name}: ${r.sites ? `${r.sites} site${r.sites === 1 ? "" : "s"} (${r.districts.join(", ")})` : "ships in"}`).join("\n") || "No rival sells here yet"}>
@@ -940,10 +953,24 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
               <div><div className="font-mono text-[0.55rem] font-semibold uppercase tracking-wide text-faint" style={{ color: "var(--color-inksoft)" }}>Your sites</div><div className="tnum text-xl font-semibold text-ink">{selSites}</div></div>
               <div><div className="font-mono text-[0.55rem] font-semibold uppercase tracking-wide text-faint" style={{ color: "var(--color-inksoft)" }}>Segments led</div><div className="tnum text-xl font-semibold" style={{ color: leadCount > 0 ? "var(--color-hop)" : "var(--color-ink)" }}>{leadCount}<span className="text-sm text-inksoft">/{sel.segments.length}</span></div></div>
             </div>
-          ) : (
+          ) : null}
+          {sel.enteringNow && (() => { const queuedHere = sel.mine.filter((f) => f.pending && f.own && f.order).length; return (
+            <div data-dw="entry-pending" className="mt-3 rounded-[11px] border p-3" style={{ borderColor: "var(--color-gold)", background: "color-mix(in srgb, var(--color-gold) 12%, var(--color-panel))" }}>
+              <div className="text-sm leading-relaxed text-ink">Entering this round. The {fmt.money(sel.entryCost)} entry fee is charged when the round runs; until then you can withdraw it.</div>
+              <button type="button" data-dw="withdraw-entry" onClick={() => withdrawEnter(sel.id)} className="mt-2.5 w-full rounded-[9px] border border-brick py-2 font-mono text-[0.62rem] font-semibold uppercase tracking-wide text-brick">
+                Withdraw entry{queuedHere ? ` and ${queuedHere} build${queuedHere === 1 ? "" : "s"} here` : ""}
+              </button>
+            </div>
+          ); })()}
+          {!sel.entered && (
             <div className="mt-3 rounded-[11px] border p-3" style={{ borderColor: "var(--color-gold)", background: "color-mix(in srgb, var(--color-gold) 12%, var(--color-panel))" }}>
               <div className="text-sm leading-relaxed text-inksoft">Not yet in this market. Entering commits a one-time entry cost and opens its districts for siting.</div>
               {entryNote(sel.id) && <div className="mt-1.5 text-sm leading-relaxed text-ink">{entryNote(sel.id)}</div>}
+              {withdrawn?.id === sel.id && (
+                <div role="status" data-dw="entry-withdrawn" className="mt-1.5 text-sm leading-relaxed text-ink">
+                  Entry withdrawn: no entry fee this round.{withdrawn.builds.length ? ` Also withdrawn: ${withdrawn.builds.join(", ")}.` : ""}{withdrawn.teamBuilds ? ` A teammate's build here stays on the team plan until they withdraw it.` : ""}
+                </div>
+              )}
               <button onClick={() => setEntering(sel.id)} className="tt-btn tt-btn--go mt-2.5 w-full py-2.5 text-[0.72rem]">Enter market · {fmt.money(sel.entryCost)}</button>
             </div>
           )}
@@ -1070,7 +1097,7 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
                   );
                 })() : (
                   <div>
-                    <div className="mb-2 text-sm italic text-faint" style={{ color: "var(--color-inksoft)" }}>Lease an open parcel — crowd preview shows the catchment competition.</div>
+                    <div className="mb-2 text-sm italic text-faint" style={{ color: "var(--color-inksoft)" }}>Lease an open parcel. The crowd preview shows nearby competition for shoppers.</div>
                     {availLots.length === 0 ? (
                       <div className="text-sm italic text-inksoft">Every unlocked parcel here is taken.</div>
                     ) : (
@@ -1114,7 +1141,7 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
             <div className="px-5 py-5">
               <div className="font-mono text-[0.55rem] font-semibold uppercase tracking-[0.16em] text-copperdeep">{ec.region} · new market</div>
               <div className="display text-2xl leading-none text-ink">Enter {ec.name}</div>
-              <div className="mt-2 text-sm text-inksoft">A one-time entry cost opens this city; capacity then routes here and you can site facilities into its districts. It commits when you brew this round. Local demand:</div>
+              <div className="mt-2 text-sm text-inksoft">A one-time entry fee opens this city: capacity then routes here, and you can site facilities in its districts. The fee is charged when this round runs. Until then you can withdraw the entry from this city's panel. Local demand:</div>
               {entryNote(ec.id) && <div className="mt-2 text-sm text-ink">{entryNote(ec.id)}</div>}
               <div className="my-3.5 flex flex-col gap-1.5">
                 {ec.segments.map((s) => (
@@ -1142,7 +1169,7 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
                 ) : <div className="text-sm text-inksoft">No rival sells here yet.</div>}
               </div>
               <div className="flex items-center justify-between border-t border-line pt-3.5">
-                <div><div className="font-mono text-[0.55rem] uppercase tracking-wide text-inksoft">Entry cost</div><div className="tnum text-xl font-bold" style={{ color: can ? "var(--color-ink)" : "var(--color-brick)" }}>{fmt.money(ec.entryCost)}</div></div>
+                <div><div className="font-mono text-[0.55rem] uppercase tracking-wide text-inksoft">Entry fee</div><div className="tnum text-xl font-bold" style={{ color: can ? "var(--color-ink)" : "var(--color-brick)" }}>{fmt.money(ec.entryCost)}</div></div>
                 <div className="flex gap-2">
                   <button onClick={() => setEntering(null)} className="rounded-lg border border-line2 bg-panel2 px-4 py-2.5 text-sm font-semibold text-inksoft">Not now</button>
                   <button onClick={() => commitEnter(ec.id)} disabled={!can} className="tt-btn tt-btn--go px-5 py-2.5 text-xs" style={{ opacity: can ? 1 : 0.6, cursor: can ? "pointer" : "not-allowed" }}>{can ? "Enter market" : "Not enough cash"}</button>
@@ -1206,7 +1233,7 @@ export function CityView({ view, actions, setActions, onInspect, extraBuilds = [
               })}
               <div className="mt-4 border-t border-line pt-3">
                 <div className="mb-1 font-mono text-[0.55rem] font-semibold uppercase tracking-[0.14em] text-copperdeep">This round · where your beer goes</div>
-                <div className="mb-2.5 text-[0.7rem] leading-snug text-inksoft">Leave a market on <b className="text-ink">auto</b> and your beer splits across your markets by presence — home counts most, a new market starts with a foothold, and brewing you site in a market raises its share. Or type an <b className="text-ink">offer</b> — a number of units, not a percent: that many go on sale there (shoppers decide how many sell, and only what sells is shipped), and the auto markets share what's left. An offer stays in force every round until you clear it.{lastSupply > 0 && <> Last round you had <b className="tnum text-ink">{fmt.int(lastSupply)}</b> units to sell.</>}</div>
+                <div className="mb-2.5 text-[0.7rem] leading-snug text-inksoft">Leave a market on <b className="text-ink">auto</b> and your beer splits across your markets by presence. Home counts most, a new market starts with a foothold, and brewing you site in a market raises its share. Or type an <b className="text-ink">offer</b>: a number of units, not a percent. That many go on sale there (shoppers decide how many sell, and only what sells is shipped), and the auto markets share what's left. An offer stays in force every round until you clear it.{lastSupply > 0 && <> Last round you had <b className="tnum text-ink">{fmt.int(lastSupply)}</b> units to sell.</>}</div>
                 {/* DW-082e: the shares read in %, the box takes units — say so (playtest 10-28) */}
                 {nowMarkets.length > 0 && <div className="mb-1 flex items-center gap-2 font-mono text-[0.5rem] uppercase tracking-[0.12em] text-inksoft"><span className="flex-1">Market</span><span>Share</span><span className="w-20 text-right">Offer · units</span></div>}
                 {nowMarkets.map((c) => (
@@ -1254,7 +1281,7 @@ function foundingCityModel(cfg: Config, placed: FoundingPlacement[]): CityModel 
   const mine: MineModel[] = placed.map((p, i) => ({ id: `founding_${i}`, type: p.type, district: p.district ?? districtOfLot(p.lot) ?? fallback, lot: p.lot, active: true, pending: true }));
   return {
     id: "home", name: meta.city, region: meta.region || "Home region", kind: "home",
-    entered: true, entryCost: 0, fx: 1, geo: meta.geo, coast: meta.coast, seed: meta.seed, roadEvery: 4,
+    entered: true, enteringNow: false, entryCost: 0, fx: 1, geo: meta.geo, coast: meta.coast, seed: meta.seed, roadEvery: 4,
     districts, mine, rivals: [], segments: [], lots, catchment: cfg.modules?.facilities?.catchment,
     // Every brewery founds in the home city, so it has rivals before any of their sites are known.
     rivalIds: Array.from({ length: Math.max(0, (cfg.game?.n_firms ?? 1) - 1) }, (_, i) => `rival_${i}`),
@@ -1351,7 +1378,7 @@ export function FoundingSiteMap({ cfg, color, placed, sitingType, onPick }: {
           <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: color }} />Your sites</span>
           <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px] border border-dashed border-copperdeep" style={{ background: "color-mix(in srgb, var(--color-copper) 32%, transparent)" }} />For lease</span>
           <span className="flex-1" />
-          <span className="italic">{hasLots ? "Tap a parcel — or a district card — to site it" : "Tap a district to site it"}</span>
+          <span className="italic">{hasLots ? "Tap a parcel or a district card to site it" : "Tap a district to site it"}</span>
         </div>
         {/* 11-09: the honest read at founding — every brewery opens here, so no parcel is a blue ocean */}
         {hasLots && model.rivalIds.length > 0 && (

@@ -44,12 +44,16 @@ export const RATIO_GROUPS: { id: RatioGroup; label: string }[] = [
   { id: "leverage", label: "Leverage" },
 ];
 
+/** 11-16: a margin on almost no revenue isn't a margin (a $0 price printed "-7,977,662%"): under $1 of
+ *  revenue, or beyond +/-1,000%, it reads "—". */
+const perRevenue = (x: number, revenue: number): number | null => (revenue >= 1 && Math.abs(x / revenue) <= 10 ? x / revenue : null);
+
 export const RATIO_DEFS: RatioDef[] = [
-  { key: "grossMargin", label: "Gross margin", group: "profitability", fmt: "pct", better: "high", compute: (r) => (r.revenue > 0 ? r.gross / r.revenue : null),
+  { key: "grossMargin", label: "Gross margin", group: "profitability", fmt: "pct", better: "high", compute: (r) => perRevenue(r.gross, r.revenue),
     formula: "Gross profit ÷ Revenue", uses: ["gross", "revenue"], meaning: "What is left of each sales dollar after brewing the drink. Price and unit cost set it — nothing else." },
-  { key: "opMargin", label: "Operating margin", group: "profitability", fmt: "pct", better: "high", compute: (r) => (r.revenue > 0 ? r.ebit / r.revenue : null),
+  { key: "opMargin", label: "Operating margin", group: "profitability", fmt: "pct", better: "high", compute: (r) => perRevenue(r.ebit, r.revenue),
     formula: "Operating income ÷ Revenue", uses: ["ebit", "revenue"], meaning: "What is left after running the business too: overhead, the programs you fund, depreciation. A wide gap below gross margin means spending, not pricing, is the issue." },
-  { key: "netMargin", label: "Net margin", group: "profitability", fmt: "pct", better: "high", compute: (r) => (r.revenue > 0 ? r.netIncome / r.revenue : null),
+  { key: "netMargin", label: "Net margin", group: "profitability", fmt: "pct", better: "high", compute: (r) => perRevenue(r.netIncome, r.revenue),
     formula: "Net income ÷ Revenue", uses: ["net", "revenue"], meaning: "The bottom line per sales dollar, after lenders are paid." },
   { key: "roic", label: "Return on invested capital", group: "profitability", fmt: "pct", better: "high", band: "roic", compute: (r) => (r.debt + r.equity > 0 ? r.netIncome / (r.debt + r.equity) : null),
     formula: "Net income ÷ (Debt + Equity)", uses: ["net", "debt", "equity"], meaning: "Profit earned this quarter on all the capital in the business, whoever supplied it. The Financial part of your scorecard grades this. Quarterly: 3% a quarter is about 12% a year." },
@@ -59,14 +63,14 @@ export const RATIO_DEFS: RatioDef[] = [
     formula: "Net income ÷ Total equity", uses: ["net", "equity"], meaning: "The owners' return. Debt lifts it when the business earns more than the loan costs — and sinks it when it doesn't." },
   { key: "cashRatio", label: "Cash ratio", group: "liquidity", fmt: "x", better: "high", compute: (r) => (r.debt > 0 ? r.cash / r.debt : null), // null = no debt (∞)
     formula: "Cash ÷ Debt", uses: ["cash", "debt"], meaning: "Could you repay your lenders from the cash on hand today? Above 1× you could." },
-  { key: "runway", label: "Cash runway", group: "liquidity", fmt: "x", better: "high", compute: (r) => (r.netIncome < 0 ? r.cash / Math.max(1, -r.netIncome) : null), // rounds of cash at the current burn; null = self-funding
+  { key: "runway", label: "Cash runway", group: "liquidity", fmt: "x", better: "high", compute: (r) => (r.netIncome < 0 ? Math.max(0, r.cash) / Math.max(1, -r.netIncome) : null), // rounds of cash at the current burn; null = self-funding
     formula: "Cash ÷ this quarter's loss", uses: ["cash", "net"], meaning: "Quarters of cash left if you keep losing money at this rate. Only shown while you are losing money." },
   { key: "debtAssets", label: "Debt-to-assets", group: "leverage", fmt: "pct", better: "low", compute: (r) => (r.assets > 0 ? r.debt / r.assets : null),
     formula: "Debt ÷ Total assets", uses: ["debt", "assets"], meaning: "The share of what you own that lenders financed." },
   { key: "debtEquity", label: "Debt-to-equity", group: "leverage", fmt: "x", better: "low", compute: (r) => (r.equity > 0 ? r.debt / r.equity : null),
     formula: "Debt ÷ Total equity", uses: ["debt", "equity"], meaning: "Lenders' money against owners' money. Borrowing gets dearer as this climbs, and a loss raises it even if you borrow nothing, because a loss shrinks equity." },
   { key: "rate", label: "Interest rate paid (qtr)", group: "leverage", fmt: "pct", better: "low", compute: (r) => (r.debt > 0 ? r.interest / r.debt : null),
-    formula: "Interest ÷ Debt", uses: ["interest", "debt"], meaning: "What your lender actually charged this quarter. It is not fixed: it climbs with debt-to-equity, and it widens as operating income stops comfortably covering the interest bill — the pricing grid a real credit agreement runs on. A rise here with no new borrowing means the bank has repriced you, and the cure is to repay or to earn back your cover." },
+    formula: "Interest ÷ Debt", uses: ["interest", "debt"], meaning: "What your lender actually charged this quarter. It is not fixed. It climbs with debt-to-equity, and again as operating income stops comfortably covering the interest bill. Real credit agreements price loans on the same kind of grid. A rise here with no new borrowing means the bank has repriced your loan. Repaying debt or rebuilding your coverage brings it back down." },
   { key: "tie", label: "Times interest earned", group: "leverage", fmt: "x", better: "high", band: "interest_cover", compute: (r) => (r.interest > 0 ? r.ebit / r.interest : null),
     formula: "Operating income ÷ Interest", uses: ["ebit", "interest"], meaning: "How many times over operating income covers the interest bill. Under 1× the business cannot pay its lenders from operations — that puts you below the safety line." },
 ];
@@ -89,9 +93,9 @@ export function ratioDisplay(def: RatioDef, v: number | null): string {
     if (def.key === "runway") return "self-funding";
     return "—";
   }
-  if (def.key === "runway") return `${v.toFixed(1)} rds`;
+  if (def.key === "runway") return v < 0.05 ? "out of cash" : `${v.toFixed(1)} rds`;
   if (def.fmt === "pct") return fmt.pct1(v);
-  if (def.fmt === "x") return `${v.toFixed(1)}×`;
+  if (def.fmt === "x") return `${fmt.num(v)}×`;
   return fmt.money(v);
 }
 

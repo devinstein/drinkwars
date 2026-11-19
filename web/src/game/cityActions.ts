@@ -234,11 +234,35 @@ export function keepUntouchedMarkets(view: GameView, merged: FirmDecision, form:
 
 /** Did the player change the committed-markets set away from what the firm already has?
  *  (The seeded set is not a decision — recomputing presence from it would register a
- *  phantom "markets served" edit on every desk.) */
+ *  phantom "markets served" edit on every desk.) 11-16: taking back an entry this seat already
+ *  sent is a change too — back at the seeded set, the next submit must still carry it. */
 export function marketsTouched(view: GameView, cityActions: CityActions): boolean {
   const seeded = new Set(emptyCityActions(view).markets);
   const cur = new Set(cityActions.markets);
-  return cur.size !== seeded.size || [...cur].some((m) => !seeded.has(m));
+  return cur.size !== seeded.size || [...cur].some((m) => !seeded.has(m)) || withdrawnEntries(view, cityActions).length > 0;
+}
+
+/** 11-16 (post-mortems: a team entered a market by accident and couldn't take it back before lock).
+ *  Take back a market entered THIS round: the entry fee is charged only when the round runs, so until
+ *  then it is just a queued order. Drops the city from the committed set, this seat's builds queued in it
+ *  (a build in a city the firm hasn't entered would still break ground) and any units offered to it (an
+ *  offer alone also enters a market — engine geography.ts). Returns the dropped builds so the map can say so. */
+export function withdrawEntry(a: CityActions, id: string, carriedSupply?: Record<string, number>): { actions: CityActions; builds: CityBuildOrder[] } {
+  const builds = a.builds.filter((b) => b.market === id);
+  const offers = a.supply ?? carriedSupply ?? null;
+  const supply = offers && id in offers ? Object.fromEntries(Object.entries(offers).filter(([k]) => k !== id)) : a.supply;
+  return { actions: { ...a, markets: a.markets.filter((m) => m !== id), builds: a.builds.filter((b) => b.market !== id), supply }, builds };
+}
+
+/** Markets this seat's SENT slice enters this round (team firms) that its City View no longer does —
+ *  a withdrawal the server hasn't heard yet. */
+export function withdrawnEntries(view: GameView, a: CityActions): string[] {
+  const me = view.teamPlan?.seats.find((s) => s.me);
+  const sent = me?.submitted ? (me.partial?.market_presence as Record<string, number> | undefined) : undefined;
+  if (!sent) return [];
+  const cur = new Set(a.markets);
+  const entered = new Set(["home", ...(view.own.markets_entered ?? [])]);
+  return Object.entries(sent).filter(([id, w]) => (w ?? 0) > 0 && !cur.has(id) && !entered.has(id)).map(([id]) => id);
 }
 
 /** Turn the committed-markets set into engine `market_presence` weights. Home keeps a base

@@ -87,8 +87,11 @@ const submit = async (page, tag, tok) => {
   await btn.click();
   for (let i = 0; i < 60; i++) { await sleep(300); if ((await myStamp(tok)) !== before) break; if (i === 59) throw new Error(`${tag}: submit never reached the server`); }
   await waitText(page, /Your desk is in/, 20000);
+  // 11-16 (post-mortems): the rail's receipt by Submit — what runs, any cut or cap, who's in
+  receipts[tag] = await page.waitForFunction(() => document.querySelector("[data-dw=sent-receipt]")?.textContent ?? "", { timeout: 8000 }).then((h) => h.jsonValue(), () => "");
   return logs.slice(n0).filter((l) => l.startsWith(`[${tag} dialog]`));
 };
+const receipts = {};
 const watch = async (p, tag) => {
   p.on("pageerror", (e) => logs.push(`[${tag} pageerror] ${e.message}`));
   p.on("console", (m) => { if (m.type() === "error" && !/404|validateDOMNesting/.test(m.text())) logs.push(`[${tag} error] ${m.text().slice(0, 200)}`); });
@@ -392,6 +395,8 @@ ok(near(panelRow(dash, "firm_3", 2)?.cfLines?.financing?.debt_draw, 30000), "(f)
 // ════ ROUND 4 (wire 3) — a plain round: every browser chair submits untouched ════
 for (const p of Object.values(P)) await toDecide(p, 3);
 for (const [page, tag, tok] of [[P.a_coo, "a_coo", A.coo.token], [P.a_cfo, "a_cfo", A.cfo.token], [P.a_ceo, "a_ceo", A.ceo.token], [P.b_ceo, "b_ceo", B.ceo.token], [P.b_coo, "b_coo", B.coo.token], [P.c_coo, "c_coo", C.coo.token], [P.c_ceo, "c_ceo", C.ceo.token], [P.b_cfo, "b_cfo", moverTok]]) await submit(page, tag, tok);
+{ const tags = ["a_coo", "a_cfo", "a_ceo", "b_ceo", "b_coo", "c_coo", "c_ceo", "b_cfo"]; const bad = tags.filter((t) => !/Sent.*runs when the round locks/.test(receipts[t] ?? "") || !/(Your desk on the team's plan|The team's plan):/.test(receipts[t] ?? "") || !/Teammates in: \d+ of \d+/.test(receipts[t] ?? ""));
+  ok(bad.length === 0, "every browser seat sees a plain receipt after Submit: sent, what its desk runs, teammates in (11-16)", bad.map((t) => `${t}: ${(receipts[t] || "none").slice(0, 120)}`).join(" | ") || receipts.a_coo?.slice(0, 160)); }
 for (const r of ["cmo", "chro"]) { await apiSubmit(A[r]); await apiSubmit(B[r]); await apiSubmit(C[r]); }
 for (const r of ["cmo", "coo", "cfo", "ceo"]) await apiSubmit(D[r]);
 await rest();

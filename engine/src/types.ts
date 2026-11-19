@@ -100,6 +100,12 @@ export interface CostConfig {
    *  counterweight to quality's demand pull — without it, raising Q lifts appeal
    *  with no production penalty and quality dominates. Omit ⇒ no premium (legacy). */
   quality_premium?: { kappa: number; halfsat: number };
+  /** 11-18 (WTS): what staff need, and the crew's part of brewing cost. `crew_share` of each drink's brewing cost is
+   *  crew pay (serving and brewing labour inside c_base); the rest is ingredients. Staff need = the going pay ×
+   *  (1 − d), d = trust_max·(T_emp − T₀)/(|T_emp − T₀| + trust_halfsat), T₀ = init.starting_T_emp: a brewery with a
+   *  strong Taproom community needs to pay less to keep people; one that lets it run down needs to pay more. The
+   *  employees module judges morale against this need. Absent (games before 11-18) ⇒ need = the going pay. */
+  wts?: { crew_share: number; trust_max: number; trust_halfsat: number };
 }
 
 export interface ValuationParams {
@@ -135,7 +141,14 @@ export interface FinanceConfig {
    *  valuation ≤ 0 the equity market is closed. `skip_founding_round` keeps the planned r0
    *  loss out of the earnings window, or nearly every firm would be locked out from r1.
    *  Absent (games created before DW-071) ⇒ no gate, the v1 behaviour. */
-  equity_gate?: { enabled: boolean; max_fraction_of_valuation: number; skip_founding_round: boolean };
+  equity_gate?: {
+    enabled: boolean; max_fraction_of_valuation: number; skip_founding_round: boolean;
+    /** 11-18: what the fraction is OF. "business" = the valuation less the cash the firm already holds (what the
+     *  business itself is worth), so cash just raised does not lift next quarter's cap — on "book" (absent, the
+     *  DW-071 rule) each raise grew the valuation it was capped on, and a firm that raised the most every quarter
+     *  compounded to hundreds of millions. */
+    basis?: "book" | "business";
+  };
   fixed_overhead: number;
   regulatory_burden_base: number; // opex; falls with T_gov
   regulatory_burden_halfsat: number;
@@ -799,6 +812,10 @@ export interface ScoringConfig {
    *  0 (default) = pure sustained. λ > 0 reopens the liquidation exploit by
    *  construction — the loader warns above 0.25 and the harness gate must hold. */
   terminal_weight?: number;
+  /** 11-18: what the Market pillar counts. "sold" = the firm's share of drinks actually sold in each category, summed
+   *  over categories. "shoppers" (absent, the original rule) = first-choice logit share, which counts shoppers a firm
+   *  could not serve: a $0 price lifted it for a round even as the firm went under. Geography games were already "sold". */
+  market_basis?: "shoppers" | "sold";
   /** §4 discipline penalties. Ships empty. */
   penalties?: ScoringPenalty[];
   /** §5 absolute benchmark bands per raw sub-metric — DISPLAY ONLY, never scored.
@@ -1182,6 +1199,10 @@ export interface SegmentResult {
    *  geography on). `cap_alloc − q_sold` is the capacity that stood idle here. Absent on older results. */
   cap_alloc?: number;
   attraction: { alpha: number; price: number; quality: number; brand: number; fit: number; agreement: number };
+  /** 11-16 (value stick): the utility of this category's outside option in this market — not buying a drink here,
+   *  which rises with the best drink in a neighbouring category (§5.3). The logit compares every drink against it,
+   *  so WTP = (utility − attraction.price − outside) / βp. Diagnostic only; absent on older results. */
+  outside?: number;
 }
 
 export interface PnL {
@@ -1298,7 +1319,7 @@ export interface FirmRoundResult {
   // routed here to sell (DW-082d; absent on older results — supplied − q_sold went unsold); lanes =
   // inbound shipments (shortfall from the nearest base) for the trade-lane viz. (consumed == q_sold.)
   // q_desired / cap_alloc (DW-084): this firm's first-choice demand and allotted supply in that market + segment — absent on older results.
-  markets: Record<string, { revenue: number; q_sold: number; entered: boolean; bySeg?: Record<SegmentId, { q_sold: number; share: number; price: number; q_desired?: number; cap_alloc?: number }>; produced: number; net: number; supplied?: number; lanes: { origin_market: string; units: number; cost: number }[] }> | null;
+  markets: Record<string, { revenue: number; q_sold: number; entered: boolean; bySeg?: Record<SegmentId, { q_sold: number; share: number; price: number; q_desired?: number; cap_alloc?: number; utility?: number; attraction?: SegmentResult["attraction"]; outside?: number }>; produced: number; net: number; supplied?: number; lanes: { origin_market: string; units: number; cost: number }[] }> | null;
   scorecard_raw: { financial: number; market: number; intangible: number; stakeholder: number };
   scorecard_norm: { financial: number; market: number; intangible: number; stakeholder: number };
   scorecard_cumulative: number;

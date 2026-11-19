@@ -91,7 +91,7 @@ export function Field({ view, infoActive, pending = false, onInspect }: { view: 
             <Eyebrow>Market Intelligence · rivals revealed</Eyebrow>
             {onInspect && (
               <div className="mb-1.5 text-[0.72rem] text-inksoft">
-                Click a brewery to open its dossier — finances, facilities{view.modules?.employees?.enabled ? ", and its crew: every employee's role, skill, pay and morale, with an" : " and a"} <b className="text-ink">{view.modules?.employees?.enabled ? "offer $" : "read"}</b>{view.modules?.employees?.enabled ? " box to poach them (your offer must beat their current pay; unhappy staff jump easier). Poach offers queue on this round's decision." : " on their position."}
+                Click a brewery to open its dossier — finances, facilities{view.modules?.employees?.enabled ? ", and its crew: every employee's role, skill, pay and morale, with an" : " and a"} <b className="text-ink">{view.modules?.employees?.enabled ? "offer $" : "read"}</b>{view.modules?.employees?.enabled ? " box to poach them (your offer must beat their current pay; unhappy staff leave more easily). Poach offers queue on this round's decision." : " on their position."}
               </div>
             )}
             <div className="overflow-x-auto">

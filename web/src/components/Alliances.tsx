@@ -23,7 +23,7 @@ const TEMPLATE_LABEL: Record<TemplateId, string> = {
 };
 const TEMPLATE_BLURB: Record<TemplateId, string> = {
   joint_marketing: "Pool brand in one category — each partner borrows a share of the others' brand there.",
-  capacity_coordination: "Restrain capacity together to firm up prices — but this is what trips antitrust.",
+  capacity_coordination: "Restrain capacity together to raise prices — but this is what draws antitrust action.",
   supply_share: "Share inputs/infrastructure to cut each partner's unit cost.",
 };
 const COND_LABEL: Record<ClauseCondition, string> = {
@@ -335,7 +335,7 @@ export function Alliances({
             <div className="grid gap-2 rounded-md border border-line bg-paper2/40 p-2.5">
               <div className="flex items-center gap-1.5">
                 <span className="text-[0.78rem] font-semibold">Propose an alliance</span>
-                <InfoDot title="Coopetition">The governance form is the real choice — a handshake costs trust to break, a formal contract costs cash but supports clauses & renegotiation, a guild is powerful but draws antitrust.</InfoDot>
+                <InfoDot title="Coopetition">The governance form is the key choice. A handshake costs trust to break. A formal contract costs cash but allows clauses & renegotiation. A guild is powerful but draws antitrust scrutiny.</InfoDot>
               </div>
               <label className="text-[0.7rem] text-inksoft">Governance form</label>
               <div className="flex flex-wrap gap-1.5">
@@ -365,7 +365,7 @@ export function Alliances({
                   </select>
                 </div>
               )}
-              <label className="text-[0.7rem] text-inksoft">The terms <span className="text-[0.62rem]">· hammer out the economics — partners can accept, decline, or counter</span></label>
+              <label className="text-[0.7rem] text-inksoft">The terms <span className="text-[0.62rem]">· set the economics — partners can accept, decline, or counter</span></label>
               <TermsEditor template={template} form={form} terms={terms} onChange={setTerms} />
               <label className="text-[0.7rem] text-inksoft">Partners {form === "collective" ? "(pick 2+ for a guild)" : "(pick 1+)"}</label>
               <div className="flex flex-wrap gap-1.5">

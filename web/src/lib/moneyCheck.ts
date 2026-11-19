@@ -8,10 +8,10 @@
  * `stocks` rides along so the running-cost reserve (regulatory cost follows the T_gov stock) matches the
  * engine's to the dollar — the preview once said $398,960 where the engine cut to $398,539.
  */
-import { applyAffordabilityGuard, creditReason, debtRate, equityCapacity, financingGrant, runningCostEstimate } from "drinkwars-engine";
+import { applyAffordabilityGuard, creditReason, debtRate, equityCapacity, financingGrant, overdraftLimit, runningCostEstimate } from "drinkwars-engine";
 import type { Config, FinancingGrant, FirmDecision, GuardCut } from "drinkwars-engine";
 import type { GameView } from "../game/controller.js";
-import { fmt } from "../labels.js";
+import { SEG_LABEL, fmt } from "../labels.js";
 import { tankOutlook } from "./tanks.js";
 
 /** The config slice the guard and the running-cost estimate read. */
@@ -25,7 +25,9 @@ export function runningCostsAsGuard(view: GameView, plan: FirmDecision, grant: P
   const debtAfter = view.own.debt + grant.draw - grant.repay;
   const lev = Math.min(10, debtAfter / Math.max(grant.equityAfter, 1e-9));
   const cfg = guardConfig(view, 0); // research isn't a running cost
-  return runningCostEstimate(view.own, plan, cfg, view.round, { debtAfter, rate: debtRate(lev, view.own.T_inv, cfg) });
+  const rate = debtRate(lev, view.own.T_inv, cfg);
+  // 11-16 (post-mortems): the rail shows interest on its own line, so it carries the rate and the debt it is charged on
+  return { ...runningCostEstimate(view.own, plan, cfg, view.round, { debtAfter, rate }), rate: Math.max(0, rate), debtAfter: Math.max(0, debtAfter) };
 }
 
 export interface TankCut { asked: number; kept: number; unitsAsked: number; unitsKept: number; when: string }
@@ -42,6 +44,16 @@ export interface MoneyOutcome {
 }
 
 const cap1 = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** 11-16 (break-it pass: a $0 price sailed through and closed the firm in round 1): each stocked category priced
+ *  under the cost to brew a drink, for the "Before you submit" check. A choice, not a block — a loss leader is legal. */
+export function priceLines(view: GameView, plan: FirmDecision): string[] {
+  const cost = view.unitCostEst;
+  if (!(cost > 0)) return [];
+  return view.segments
+    .filter((s) => s.active && (plan.presence?.[s.id] ?? 0) > 0 && (plan.price?.[s.id] ?? 0) < cost)
+    .map((s) => `${SEG_LABEL[s.id] ?? s.id} at ${fmt.price(plan.price?.[s.id] ?? 0)} is under the ~${fmt.price(cost)} it costs to brew a drink. Every one you sell loses money.`);
+}
 
 export function moneyOutcome(view: GameView, plan: FirmDecision, infoCost: number): MoneyOutcome | null {
   if (!view.finance || !view.own) return null;
@@ -68,15 +80,31 @@ export function moneyOutcome(view: GameView, plan: FirmDecision, infoCost: numbe
     : `Loan: the bank lends ${m(loan.lent)} of the ${m(loan.asked)} you asked for (${loan.why}).`);
   if (equity) lines.push(equity.raised < 0.5
     ? `Equity: no investor will buy in this quarter. None of the ${m(equity.asked)} you asked for arrives.`
-    : `Equity: investors put in ${m(equity.raised)} of the ${m(equity.asked)} you asked for. Each quarter they invest at most a set share of what the firm is worth.`);
+    : `Equity: investors put in ${m(equity.raised)} of the ${m(equity.asked)} you asked for. Each quarter they invest at most ${Math.round((fin.finance.equity_gate?.max_fraction_of_valuation ?? 0.5) * 100)}% of what the ${fin.finance.equity_gate?.basis === "business" ? "business is worth, not counting its cash" : "firm is worth"}.`);
   if (cuts.length && guard) {
-    lines.push(`This plan spends ${m(spend)}. Your cash and the financing you'll get cover ${m(guard.sources)}${guard.reserve >= 0.5 ? `, after ${m(guard.reserve)} is set aside for this quarter's running costs` : ""}. If you submit it as it is, the round cuts:`);
+    // 11-16: the reserve's interest, named (the guard prices it on the plan's own grant, before any cut)
+    const interest = guard.reserve >= 0.5 && view.capacity ? runningCostsAsGuard(view, plan, financingGrant(view.own, fin, plan, equityCap)).interest : 0;
+    const ofIt = interest >= 0.5 ? ` (including ${m(interest)} of interest)` : "";
+    // 11-18 break-it pass: a negative "cover" read as "cover −$86,626"; say it as a shortfall
+    lines.push(guard.sources < -0.5
+      ? `This plan spends ${m(spend)}. Your cash and the financing you'll get come up ${m(-guard.sources)} short of this quarter's operating costs alone (${m(guard.reserve)}${ofIt}). If you submit it as it is, the round cuts:`
+      : `This plan spends ${m(spend)}. Your cash and the financing you'll get cover ${m(guard.sources)}${guard.reserve >= 0.5 ? `, after ${m(guard.reserve)} is set aside for this quarter's operating costs${ofIt}` : ""}. If you submit it as it is, the round cuts:`);
     for (const x of cuts) {
       if (x.kind === "tanks" && tank) lines.push(tank.kept >= 0.5
         ? `Tank order: ${m(x.asked)} → ${m(x.kept)}. That adds ${n(tank.unitsKept)} units of capacity ${when}, not ${n(tank.unitsAsked)}.`
         : `Tank order (${m(x.asked)}): dropped, so no new capacity arrives ${when}.`);
       else if (x.kept >= 0.5) lines.push(`${cap1(x.label)}: ${m(x.asked)} → ${m(x.kept)}.`);
       else lines.push(`${cap1(x.label)} (${m(x.asked)}): dropped.`);
+    }
+  }
+  if (guard) {
+    // 11-18 break-it pass: spending on quality, brand, community and the like is never cut, and it repeats every quarter.
+    // A student who set $207k on one slider in round 1 closed by round 4 without being told the cuts weren't enough —
+    // and with nothing to cut (no tank order), the plan raised no check at all.
+    const short = spend - cuts.reduce((a, x) => a + x.asked - x.kept, 0) - guard.sources;
+    if (short >= 0.5) {
+      const od = view.finance.overdraft ? overdraftLimit(view.own, fin) : 0;
+      lines.push(`${cuts.length ? "Even after those cuts, the" : "The"} plan and this quarter's operating costs come to ${m(short)} more than your cash and financing, before any sales come in. Spending on quality, brand, community and stakeholders is never cut, so this quarter's sales must cover the gap.${od >= 0.5 ? ` If they don't, the emergency overdraft lends up to ${m(od)} at a penalty rate. Past that, the firm closes.` : " If they don't, the firm closes."}`);
     }
   }
   return { grant, cuts, reserve: guard?.reserve ?? 0, sources: guard?.sources ?? 0, spend, tank, loan, equity, lines };

@@ -480,10 +480,17 @@ export function resolveRound(prevWorld: WorldState, decisionList: FirmDecision[]
   const distinct = computeDistinctiveness(vectors);
 
   // Step 12: update running scorecard (participants, normalized within round).
+  // 11-18: on market_basis "sold" the Market pillar counts each firm's share of the drinks actually sold per category
+  // (first-choice share counted shoppers it could not serve). Geography games already carried the sold share.
+  const soldBasis = c.scoring.market_basis === "sold";
+  const soldTotals = new Map<SegmentId, number>();
+  if (soldBasis) for (const segs of perFirmSegs.values()) for (const [seg, r] of Object.entries(segs)) soldTotals.set(seg, (soldTotals.get(seg) ?? 0) + Math.max(0, r.q_sold));
   const snaps: ScoreSnapshot[] = participants.map((id) => {
     const f = firmsById.get(id)!;
     const fin = finByFirm.get(id)!;
-    const shareSum = [...(sharesByFirm.get(id)?.values() ?? [])].reduce((a, b) => a + b, 0);
+    const shareSum = soldBasis
+      ? Object.entries(perFirmSegs.get(id) ?? {}).reduce((a, [seg, r]) => { const t = soldTotals.get(seg) ?? 0; return a + (t > 1e-9 ? Math.max(0, r.q_sold) / t : 0); }, 0)
+      : [...(sharesByFirm.get(id)?.values() ?? [])].reduce((a, b) => a + b, 0);
     return {
       firm_id: id, net_income: fin.pnl.net_income, invested_capital: fin.balance_sheet.debt + fin.balance_sheet.equity,
       coverage: fin.cost_of_capital.coverage, leverage: fin.cost_of_capital.leverage, cash: f.cash,
